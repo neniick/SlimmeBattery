@@ -5,6 +5,7 @@ blueprint:
 
     - Nul-op-de-meter: Binnen 'normal' tarief wordt het netverbruik op 0 W gehouden.
     - Slim Laden/Ontladen: Controleert of de actuele prijs lager/hoger is dan de losse sensoren van de komende X uur.
+    - Foutvrij: Omzeilt Home Assistant 'NoneType' auto-conversie.
     - Wordt elke 20 seconden uitgevoerd.
   domain: automation
 
@@ -35,14 +36,13 @@ blueprint:
 
     forecast_sensor_prefix:
       name: "Prefix Forecast Sensoren"
-      description: "Het gedeelte van de voorspelling-sensoren vóór het cijfer. Standaard is dit met jouw spelling 'forcast'."
+      description: "Het gedeelte van de voorspelling-sensoren vóór het cijfer."
       default: "sensor.zonneplan_forcast_tariff_"
       selector:
         text: {}
 
     forecast_lookahead_hours:
       name: "Voorspelling: Hoeveel uur vooruit kijken?"
-      description: "Hoeveel sensoren (_1, _2, _3 etc.) moeten we uitlezen om mee te vergelijken?"
       default: 8
       selector:
         number: {min: 1, max: 24, step: 1, unit_of_measurement: "uur", mode: slider}
@@ -152,7 +152,6 @@ action:
       cur_charge: "{{ states(v_num_charge) | float(0) }}"
       cur_discharge: "{{ states(v_num_discharge) | float(0) }}"
       
-      # Prijsniveau inlezen ('low', 'normal', 'high')
       price_state: >-
         {% if v_price_level in ['', 'none'] or not states(v_price_level) %}
           normal
@@ -160,7 +159,6 @@ action:
           {{ states(v_price_level) | lower }}
         {% endif %}
 
-      # Netvermogen berekenen
       grid_w: >-
         {% set raw = states(v_house_pwr) %}
         {% set p = raw | float(0) %}
@@ -173,7 +171,6 @@ action:
           {{ p }}
         {% endif %}
 
-      # Forecast Analyse: Lees sensoren dynamisch uit
       price_analysis: >-
         {% if v_price_sensor in ['', 'none'] or not states(v_price_sensor) %}
           true,true,0,0
@@ -182,7 +179,6 @@ action:
           {% set lookahead = v_lookahead_hours | int(8) %}
           {% set ns = namespace(prices=[]) %}
           
-          {# Loop door de uren heen en bouw de sensornaam op #}
           {% for i in range(1, lookahead + 1) %}
             {% set f_entity = v_forecast_prefix ~ i %}
             {% set f_state = states(f_entity) %}
@@ -197,9 +193,7 @@ action:
           {% set min_f = ns.prices | min if ns.prices else cp %}
           {% set max_f = ns.prices | max if ns.prices else cp %}
           
-          {# 'true' als de huidige prijs gelijk of lager is dan alle komende uren #}
           {% set is_best_c = 'true' if cp <= min_f else 'false' %}
-          {# 'true' als de huidige prijs gelijk of hoger is dan alle komende uren #}
           {% set is_best_d = 'true' if cp >= max_f else 'false' %}
           
           {{ is_best_c }},{{ is_best_d }},{{ min_f }},{{ max_f }}
@@ -265,8 +259,7 @@ action:
     data:
       level: info
       message: >
-        [Nul-op-de-meter] prijs={{ price_state }}, best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }} (min_f={{ min_future_price }}, max_f={{ max_future_price }}),
-        grid={{ grid_w }}W, real_demand={{ real_demand }}W, soc={{ soc }}%, target_mode={{ target_mode }}, target_power={{ target_power }}W
+        [Nul-op-de-meter] prijs={{ price_state }}, target_mode={{ target_mode }}, target_power={{ target_power }}W
 
   - choose:
       - conditions: >-
@@ -286,13 +279,15 @@ action:
 
     default:
       - choose:
+          # Wisseling van charge <-> discharge
           - conditions: >-
               {{ (cur_mode == mode_charge and target_mode == mode_discharge)
                  or (cur_mode == mode_discharge and target_mode == mode_charge) }}
             sequence:
               - service: select.select_option
                 target: { entity_id: !input select_force_mode }
-                data: { option: "{{ mode_none }}" }
+                data:
+                  option: "None"
               - delay: { seconds: 2 }
               - choose:
                   - conditions: "{{ target_mode == mode_charge }}"
@@ -300,15 +295,21 @@ action:
                       - service: number.set_value
                         target: { entity_id: !input number_charge_power }
                         data: { value: "{{ target_power }}" }
+                      - service: select.select_option
+                        target: { entity_id: !input select_force_mode }
+                        data:
+                          option: "Solis RC Force Battery Charge"
                   - conditions: "{{ target_mode == mode_discharge }}"
                     sequence:
                       - service: number.set_value
                         target: { entity_id: !input number_discharge_power }
                         data: { value: "{{ target_power }}" }
-              - service: select.select_option
-                target: { entity_id: !input select_force_mode }
-                data: { option: "{{ target_mode }}" }
+                      - service: select.select_option
+                        target: { entity_id: !input select_force_mode }
+                        data:
+                          option: "Solis RC Force Battery Discharge"
 
+          # Zelfde richting: direct instellen
           - conditions: "{{ target_mode != mode_none }}"
             sequence:
               - choose:
@@ -323,15 +324,27 @@ action:
                         target: { entity_id: !input number_discharge_power }
                         data: { value: "{{ target_power }}" }
               - choose:
-                  - conditions: "{{ cur_mode != target_mode }}"
+                  - conditions: "{{ cur_mode != target_mode and target_mode == mode_charge }}"
                     sequence:
                       - service: select.select_option
                         target: { entity_id: !input select_force_mode }
-                        data: { option: "{{ target_mode }}" }
+                        data:
+                          option: "Solis RC Force Battery Charge"
+                  - conditions: "{{ cur_mode != target_mode and target_mode == mode_discharge }}"
+                    sequence:
+                      - service: select.select_option
+                        target: { entity_id: !input select_force_mode }
+                        data:
+                          option: "Solis RC Force Battery Discharge"
 
+        # Target is None
         default:
-          - service: select.select_option
-            target: { entity_id: !input select_force_mode }
-            data: { option: "{{ mode_none }}" }
+          - choose:
+              - conditions: "{{ cur_mode != mode_none }}"
+                sequence:
+                  - service: select.select_option
+                    target: { entity_id: !input select_force_mode }
+                    data:
+                      option: "None"
 
 mode: single
