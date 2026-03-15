@@ -1,13 +1,10 @@
- 
 blueprint:
-  name: Nul op de Meter + Dynamisch Tarief - Solis Thuisbatterij
+  name: Nul op de Meter + Slim Tarief (Losse Sensoren) - Solis Thuisbatterij
   description: >
-    Houdt het netverbruik op 0 W, maar laadt automatisch op bij lage stroomprijzen en levert terug bij hoge stroomprijzen.
+    Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in losse forecast-sensoren (_1, _2, etc.) om te bepalen of nú het allerbeste moment is.
 
-    - Dynamisch: Laadt voluit bij 'low' tarief, ontlaadt voluit bij 'high' tarief.
-    - Met instelbare vermogens en SOC-grenzen specifiek voor de prijs-overrides.
-    - Nul-op-de-meter: Binnen 'normal' tarief (of als de prijs-SOC grens bereikt is) wordt het netverbruik op 0 W gehouden.
-    - Aansturing via Solis RC Force Charge/Discharge selector.
+    - Nul-op-de-meter: Binnen 'normal' tarief wordt het netverbruik op 0 W gehouden.
+    - Slim Laden/Ontladen: Controleert of de actuele prijs lager/hoger is dan de losse sensoren van de komende X uur.
     - Wordt elke 20 seconden uitgevoerd.
   domain: automation
 
@@ -15,47 +12,61 @@ blueprint:
     # ---- Sensors (verplicht) ----
     sensor_soc:
       name: "Batterij SOC (%)"
-      description: "Bijv.: sensor.thuisbatterij_percentage"
       default: sensor.thuisbatterij_percentage
       selector: { entity: { domain: sensor } }
 
     sensor_house_power:
       name: "Net-/huisvermogenssensor (W/kW)"
-      description: "Positief = afname (import), negatief = export (teruglevering). Bijv.: sensor.stroomverbruik"
       default: sensor.stroomverbruik
       selector: { entity: { domain: sensor } }
 
-    # ---- Dynamische Prijzen (optioneel) ----
+    # ---- Dynamische Prijzen & Forecast (optioneel) ----
     sensor_price_level:
-      name: "Zonneplan Prijsniveau Sensor"
-      description: "Sensor die 'high', 'normal' of 'low' teruggeeft. Laat leeg om alleen de nul-op-de-meter regeling te gebruiken."
+      name: "Zonneplan Prijsniveau Sensor (Status)"
+      description: "Sensor die 'high', 'normal' of 'low' teruggeeft."
       default: ""
       selector: { entity: { domain: sensor } }
 
+    sensor_price_value:
+      name: "Zonneplan Actuele Prijs Sensor (Numeriek)"
+      description: "Sensor met de huidige prijs (bijv. sensor.zonneplan_current_electricity_price). Dit is de prijs die vergeleken wordt met de voorspellingen."
+      default: ""
+      selector: { entity: { domain: sensor } }
+
+    forecast_sensor_prefix:
+      name: "Prefix Forecast Sensoren"
+      description: "Het gedeelte van de voorspelling-sensoren vóór het cijfer. Standaard is dit met jouw spelling 'forcast'."
+      default: "sensor.zonneplan_forcast_tariff_"
+      selector:
+        text: {}
+
+    forecast_lookahead_hours:
+      name: "Voorspelling: Hoeveel uur vooruit kijken?"
+      description: "Hoeveel sensoren (_1, _2, _3 etc.) moeten we uitlezen om mee te vergelijken?"
+      default: 8
+      selector:
+        number: {min: 1, max: 24, step: 1, unit_of_measurement: "uur", mode: slider}
+
     price_override_soc_min:
       name: "Prijs: Minimale SOC bij 'high' (%)"
-      description: "Stop met het forceren van terugleveren als de batterij dit percentage bereikt (handig om reserve voor de nacht te houden)."
       default: 20
       selector:
         number: {min: 0, max: 100, step: 5, unit_of_measurement: "%", mode: slider}
 
     price_override_soc_max:
       name: "Prijs: Maximale SOC bij 'low' (%)"
-      description: "Stop met het geforceerd opladen vanaf het net als de batterij dit percentage bereikt."
       default: 100
       selector:
         number: {min: 0, max: 100, step: 5, unit_of_measurement: "%", mode: slider}
 
     price_override_charge_power:
       name: "Prijs: Laadvermogen bij 'low' (W)"
-      description: "Met welk vermogen moet de batterij opladen tijdens goedkope uren?"
       default: 4000
       selector:
         number: {min: 0, max: 10000, step: 100, unit_of_measurement: "W", mode: slider}
 
     price_override_discharge_power:
       name: "Prijs: Ontlaadvermogen bij 'high' (W)"
-      description: "Met welk vermogen moet de batterij terugleveren aan het net tijdens dure uren?"
       default: 4000
       selector:
         number: {min: 0, max: 10000, step: 100, unit_of_measurement: "W", mode: slider}
@@ -63,49 +74,40 @@ blueprint:
     # ---- Actuators (verplicht) ----
     select_force_mode:
       name: "Solis RC Force Charge/Discharge selector"
-      description: "Bijv.: select.rc_force_charge_discharge"
       default: select.rc_force_charge_discharge
       selector: { entity: { domain: select } }
 
     number_charge_power:
-      name: "Max charge power (W)"
-      description: "Bijv.: number.thuisbatterij_max_charge_power"
+      name: "Max charge power actuator (W)"
       default: number.thuisbatterij_max_charge_power
       selector: { entity: { domain: number } }
 
     number_discharge_power:
-      name: "Max discharge power (W)"
-      description: "Bijv.: number.thuisbatterij_max_discharge_power"
+      name: "Max discharge power actuator (W)"
       default: number.thuisbatterij_max_discharge_power
       selector: { entity: { domain: number } }
 
     # ---- Nul op de meter drempel ----
     grid_deadband_w:
       name: "Nul-op-de-meter bandbreedte (W)"
-      description: "Acceptabele afwijking van 0 W. Batterij grijpt in buiten +/- deze waarde."
       default: 300
       selector:
         number: {min: 50, max: 1000, step: 50, unit_of_measurement: "W", mode: slider}
 
-    # ---- SOC grenzen (Nul op de meter) ----
     soc_hard_min:
       name: "Harde SOC-ondergrens Nul-op-de-meter (%)"
-      description: "Nooit ontladen voor huisverbruik onder deze SOC. Dit is de absolute ondergrens."
       default: 10
       selector:
         number: {min: 0, max: 50, step: 5, unit_of_measurement: "%", mode: slider}
 
-    # ---- Maximaal vermogen (Nul op de meter) ----
     max_charge_power:
       name: "Max laadvermogen Nul-op-de-meter (W)"
-      description: "Bovengrens voor dynamisch laden met zonne-overschot."
       default: 8000
       selector:
         number: {min: 0, max: 10000, step: 100, unit_of_measurement: "W", mode: slider}
 
     max_discharge_power:
       name: "Max ontlaadvermogen Nul-op-de-meter (W)"
-      description: "Bovengrens voor dynamisch ontladen voor eigen huisverbruik."
       default: 6000
       selector:
         number: {min: 0, max: 10000, step: 100, unit_of_measurement: "W", mode: slider}
@@ -113,7 +115,11 @@ blueprint:
 variables:
   v_soc: !input sensor_soc
   v_house_pwr: !input sensor_house_power
+  
   v_price_level: !input sensor_price_level
+  v_price_sensor: !input sensor_price_value
+  v_forecast_prefix: !input forecast_sensor_prefix
+  v_lookahead_hours: !input forecast_lookahead_hours
 
   v_price_soc_min: !input price_override_soc_min
   v_price_soc_max: !input price_override_soc_max
@@ -129,27 +135,24 @@ variables:
   v_max_charge: !input max_charge_power
   v_max_discharge: !input max_discharge_power
 
-  # Solis mode waarden
   mode_none: "None"
   mode_charge: "Solis RC Force Battery Charge"
   mode_discharge: "Solis RC Force Battery Discharge"
 
 trigger:
-  # Vuur de automatisering stipt elke 20 seconden af
   - platform: time_pattern
     seconds: "/20"
 
 condition: []
 
 action:
-  # 1) Lees actuele waarden in
   - variables:
       soc: "{{ states(v_soc) | float(0) }}"
       cur_mode: "{{ states(v_select_force) }}"
       cur_charge: "{{ states(v_num_charge) | float(0) }}"
       cur_discharge: "{{ states(v_num_discharge) | float(0) }}"
       
-      # Prijsniveau inlezen (als de sensor leeg of onbekend is, beschouw het als 'normal')
+      # Prijsniveau inlezen ('low', 'normal', 'high')
       price_state: >-
         {% if v_price_level in ['', 'none'] or not states(v_price_level) %}
           normal
@@ -157,7 +160,7 @@ action:
           {{ states(v_price_level) | lower }}
         {% endif %}
 
-      # Netvermogen in Watt (positief = import, negatief = export)
+      # Netvermogen berekenen
       grid_w: >-
         {% set raw = states(v_house_pwr) %}
         {% set p = raw | float(0) %}
@@ -170,7 +173,43 @@ action:
           {{ p }}
         {% endif %}
 
-  # 2) Bepaal targets: prijs-override óf nul-op-de-meter
+      # Forecast Analyse: Lees sensoren dynamisch uit
+      price_analysis: >-
+        {% if v_price_sensor in ['', 'none'] or not states(v_price_sensor) %}
+          true,true,0,0
+        {% else %}
+          {% set cp = states(v_price_sensor) | float(0) %}
+          {% set lookahead = v_lookahead_hours | int(8) %}
+          {% set ns = namespace(prices=[]) %}
+          
+          {# Loop door de uren heen en bouw de sensornaam op #}
+          {% for i in range(1, lookahead + 1) %}
+            {% set f_entity = v_forecast_prefix ~ i %}
+            {% set f_state = states(f_entity) %}
+            {% if f_state not in ['unknown', 'unavailable', 'none', ''] %}
+              {% set p = f_state | float(none) %}
+              {% if p != none %}
+                {% set ns.prices = ns.prices + [p] %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          
+          {% set min_f = ns.prices | min if ns.prices else cp %}
+          {% set max_f = ns.prices | max if ns.prices else cp %}
+          
+          {# 'true' als de huidige prijs gelijk of lager is dan alle komende uren #}
+          {% set is_best_c = 'true' if cp <= min_f else 'false' %}
+          {# 'true' als de huidige prijs gelijk of hoger is dan alle komende uren #}
+          {% set is_best_d = 'true' if cp >= max_f else 'false' %}
+          
+          {{ is_best_c }},{{ is_best_d }},{{ min_f }},{{ max_f }}
+        {% endif %}
+        
+      is_best_charge: "{{ (price_analysis.split(',')[0] | trim) == 'true' }}"
+      is_best_discharge: "{{ (price_analysis.split(',')[1] | trim) == 'true' }}"
+      min_future_price: "{{ price_analysis.split(',')[2] | trim | float(0) }}"
+      max_future_price: "{{ price_analysis.split(',')[3] | trim | float(0) }}"
+
   - variables:
       real_demand: >-
         {% set g = grid_w | float(0) %}
@@ -186,9 +225,9 @@ action:
         {% set p_soc_min = v_price_soc_min | float(20) %}
         {% set p_soc_max = v_price_soc_max | float(100) %}
 
-        {% if price_state == 'low' and soc < p_soc_max %}
+        {% if price_state == 'low' and is_best_charge and soc < p_soc_max %}
           {{ mode_charge }}
-        {% elif price_state == 'high' and soc > p_soc_min %}
+        {% elif price_state == 'high' and is_best_discharge and soc > p_soc_min %}
           {{ mode_discharge }}
         {% elif rd > deadband and soc > soc_min %}
           {{ mode_discharge }}
@@ -210,9 +249,9 @@ action:
         {% set p_chg_pwr = v_price_charge_pwr | float(4000) %}
         {% set p_dis_pwr = v_price_discharge_pwr | float(4000) %}
 
-        {% if price_state == 'low' and soc < p_soc_max %}
+        {% if price_state == 'low' and is_best_charge and soc < p_soc_max %}
           {{ p_chg_pwr }}
-        {% elif price_state == 'high' and soc > p_soc_min %}
+        {% elif price_state == 'high' and is_best_discharge and soc > p_soc_min %}
           {{ p_dis_pwr }}
         {% elif rd > deadband and soc > soc_min %}
           {{ [[rd | round(0) | int, 0] | max, max_dis] | min }}
@@ -222,16 +261,13 @@ action:
           0
         {% endif %}
 
-  # Debug logging (handig in Logboek om te kijken wat hij besluit te doen)
   - service: system_log.write
     data:
       level: info
       message: >
-        [Nul-op-de-meter] prijs={{ price_state }}, grid={{ grid_w }}W, real_demand={{ real_demand }}W,
-        soc={{ soc }}%, target: mode={{ target_mode }}, power={{ target_power }}W,
-        current: mode={{ cur_mode }}, charge={{ cur_charge }}W, discharge={{ cur_discharge }}W
+        [Nul-op-de-meter] prijs={{ price_state }}, best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }} (min_f={{ min_future_price }}, max_f={{ max_future_price }}),
+        grid={{ grid_w }}W, real_demand={{ real_demand }}W, soc={{ soc }}%, target_mode={{ target_mode }}, target_power={{ target_power }}W
 
-  # 3) Niets gewijzigd? Stoppen zonder service-calls (om API/Modbus rustig te houden)
   - choose:
       - conditions: >-
           {% set tm = target_mode | string %}
@@ -249,9 +285,7 @@ action:
           - stop: "Geen wijzigingen nodig."
 
     default:
-      # 4) Zet mode en vermogen (met veilige tussenstap via 'None' bij wisselen van richting)
       - choose:
-          # Wisseling van charge <-> discharge
           - conditions: >-
               {{ (cur_mode == mode_charge and target_mode == mode_discharge)
                  or (cur_mode == mode_discharge and target_mode == mode_charge) }}
@@ -275,7 +309,6 @@ action:
                 target: { entity_id: !input select_force_mode }
                 data: { option: "{{ target_mode }}" }
 
-          # Zelfde richting of van/naar None: direct instellen
           - conditions: "{{ target_mode != mode_none }}"
             sequence:
               - choose:
@@ -296,7 +329,6 @@ action:
                         target: { entity_id: !input select_force_mode }
                         data: { option: "{{ target_mode }}" }
 
-        # Target is None: zet mode op None
         default:
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
