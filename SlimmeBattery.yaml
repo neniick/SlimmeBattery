@@ -5,7 +5,6 @@ blueprint:
 
     - Nul-op-de-meter: Binnen 'normal' tarief wordt het netverbruik op 0 W gehouden.
     - Slim Laden/Ontladen: Controleert of de actuele prijs lager/hoger is dan de losse sensoren van de komende X uur.
-    - Foutvrij: Omzeilt Home Assistant 'NoneType' auto-conversie.
     - Wordt elke 20 seconden uitgevoerd.
   domain: automation
 
@@ -30,7 +29,7 @@ blueprint:
 
     sensor_price_value:
       name: "Zonneplan Actuele Prijs Sensor (Numeriek)"
-      description: "Sensor met de huidige prijs (bijv. sensor.zonneplan_current_electricity_price). Dit is de prijs die vergeleken wordt met de voorspellingen."
+      description: "Sensor met de huidige prijs."
       default: ""
       selector: { entity: { domain: sensor } }
 
@@ -148,7 +147,7 @@ condition: []
 action:
   - variables:
       soc: "{{ states(v_soc) | float(0) }}"
-      cur_mode: "{{ states(v_select_force) }}"
+      cur_mode: "{{ states(v_select_force) | string }}"
       cur_charge: "{{ states(v_num_charge) | float(0) }}"
       cur_discharge: "{{ states(v_num_discharge) | float(0) }}"
       
