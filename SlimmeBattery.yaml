@@ -1,9 +1,10 @@
 blueprint:
-  name: Nul op de Meter + Slim Tarief (Altijd Overschrijven) - Solis Thuisbatterij
+  name: Nul op de Meter + Slim Tarief (Marge Check) - Solis Thuisbatterij
   description: >
     Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in losse forecast-sensoren.
     
-    LET OP: Deze versie overschrijft ALTIJD elke 20 seconden de waardes naar de omvormer om te voorkomen dat de inverter in slaap valt of lokaal terugvalt.
+    Nieuw: Controleert of de winstmarge (verschil tussen laad- en ontlaadmoment) groot genoeg is voordat hij besluit te laden!
+    LET OP: Overschrijft ALTIJD elke 20 seconden de waardes om de omvormer wakker te houden.
   domain: automation
 
   input:
@@ -44,6 +45,13 @@ blueprint:
       default: 8
       selector:
         number: {min: 1, max: 24, step: 1, unit_of_measurement: "uur", mode: slider}
+        
+    price_charge_min_difference:
+      name: "Prijsverschil: Minimaal verschil voor opladen (€)"
+      description: "De actuele prijs moet minimaal dit bedrag (bijv. 0.10) lager zijn dan de hoogste prijs in de komende uren om geforceerd te laden. Voorkomt onnodige slijtage."
+      default: 0.10
+      selector:
+        number: {min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€", mode: slider}
 
     price_override_soc_min:
       name: "Prijs: Minimale SOC bij 'high' (%)"
@@ -118,6 +126,7 @@ variables:
   v_price_sensor: !input sensor_price_value
   v_forecast_prefix: !input forecast_sensor_prefix
   v_lookahead_hours: !input forecast_lookahead_hours
+  v_price_charge_diff: !input price_charge_min_difference
 
   v_price_soc_min: !input price_override_soc_min
   v_price_soc_max: !input price_override_soc_max
@@ -150,6 +159,13 @@ action:
       cur_charge: "{{ states(v_num_charge) | float(0) }}"
       cur_discharge: "{{ states(v_num_discharge) | float(0) }}"
       
+      current_price: >-
+        {% if v_price_sensor in ['', 'none'] or states(v_price_sensor) in ['unknown', 'unavailable', ''] %}
+          0
+        {% else %}
+          {{ states(v_price_sensor) | float(0) }}
+        {% endif %}
+      
       price_state: >-
         {% if v_price_level in ['', 'none'] or not states(v_price_level) %}
           normal
@@ -167,11 +183,12 @@ action:
         {% endif %}
 
       price_analysis: >-
-        {% if v_price_sensor in ['', 'none'] or not states(v_price_sensor) %}
+        {% if v_price_sensor in ['', 'none'] or current_price == 0 %}
           true,true,0,0
         {% else %}
-          {% set cp = states(v_price_sensor) | float(0) %}
+          {% set cp = current_price %}
           {% set lookahead = v_lookahead_hours | int(8) %}
+          {% set min_diff = v_price_charge_diff | float(0.10) %}
           {% set ns = namespace(prices=[]) %}
           
           {% for i in range(1, lookahead + 1) %}
@@ -188,7 +205,10 @@ action:
           {% set min_f = ns.prices | min if ns.prices else cp %}
           {% set max_f = ns.prices | max if ns.prices else cp %}
           
-          {% set is_best_c = 'true' if cp <= min_f else 'false' %}
+          {# Best charge: huidige prijs is de laagste én het verschil met de komende maximale prijs is groter dan de ingestelde drempel #}
+          {% set is_best_c = 'true' if (cp <= min_f) and ((max_f - cp) >= min_diff) else 'false' %}
+          
+          {# Best discharge blijft ongewijzigd: verkopen als de prijs nú het hoogst is #}
           {% set is_best_d = 'true' if cp >= max_f else 'false' %}
           
           {{ is_best_c }},{{ is_best_d }},{{ min_f }},{{ max_f }}
@@ -254,12 +274,11 @@ action:
     data:
       level: info
       message: >
-        [Nul-op-de-meter] prijs={{ price_state }}, best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }},
+        [Nul-op-de-meter] prijs={{ price_state }} (cp={{ current_price }}), best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }},
         grid={{ grid_w }}W, real_demand={{ real_demand }}W, soc={{ soc }}%, target_mode={{ target_mode }}, target_power={{ target_power }}W
 
-  # ACTIES: Vanaf hier wordt ALTIJD weggeschreven, ook als er schijnbaar niks verandert.
+  # ACTIES: Altijd wegschrijven
   - choose:
-      # Bij een harde wissel van laden naar ontladen (of vice versa) doen we een tussenstap via None
       - conditions: >-
           {{ (cur_mode == mode_charge and target_mode == mode_discharge)
              or (cur_mode == mode_discharge and target_mode == mode_charge) }}
@@ -283,7 +302,6 @@ action:
             target: { entity_id: !input select_force_mode }
             data: { option: "{{ target_mode }}" }
 
-      # Direct instellen als we laden of ontladen
       - conditions: "{{ target_mode != mode_none }}"
         sequence:
           - choose:
@@ -298,12 +316,10 @@ action:
                     target: { entity_id: !input number_discharge_power }
                     data: { value: "{{ target_power }}" }
           
-          # We checken niet meer of we al in deze modus stonden; we sturen de opdracht ALTIJD door
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
             data: { option: "{{ target_mode }}" }
 
-    # Als de target 'None' is (niets doen)
     default:
       - service: select.select_option
         target: { entity_id: !input select_force_mode }
