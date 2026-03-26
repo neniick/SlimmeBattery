@@ -3,10 +3,9 @@ blueprint:
   description: >
     Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in losse forecast-sensoren.
     
-    - Instelbare uitvoer-frequentie (bijv. elke 10 of 20 seconden).
+    - Instelbare uitvoer-frequentie.
     - Marge-check: controleert de winstmarge voor opladen.
-    - Bugfix: 'None' safe-strings voorkomen errors in de log.
-    - Overschrijft ALTIJD actief de omvormer om deze wakker te houden.
+    - Bugfix: Template parsing errors opgelost en boolean-fixes toegepast.
   domain: automation
 
   input:
@@ -69,7 +68,7 @@ blueprint:
         
     price_charge_min_difference:
       name: "Prijsverschil: Minimaal verschil voor opladen (€)"
-      description: "De actuele prijs moet minimaal dit bedrag (bijv. 0.10) lager zijn dan de hoogste prijs in de komende uren om geforceerd te laden."
+      description: "De actuele prijs moet minimaal dit bedrag (bijv. 0.10) lager zijn dan de hoogste prijs in de komende uren."
       default: 0.10
       selector:
         number: {min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€", mode: slider}
@@ -207,7 +206,7 @@ action:
         {% if v_price_sensor in ['', 'none'] or current_price == 0 %}
           true,true,0,0
         {% else %}
-          {% set cp = current_price %}
+          {% set cp = current_price | float(0) %}
           {% set lookahead = v_lookahead_hours | int(8) %}
           {% set min_diff = v_price_charge_diff | float(0.10) %}
           {% set ns = namespace(prices=[]) %}
@@ -248,8 +247,105 @@ action:
         {% set rd = real_demand | float(0) %}
         {% set deadband = v_deadband | float(300) %}
         {% set soc_min = v_soc_min | float(10) %}
-        
         {% set p_soc_min = v_price_soc_min | float(20) %}
         {% set p_soc_max = v_price_soc_max | float(100) %}
+        {% set best_c = is_best_charge | bool(false) %}
+        {% set best_d = is_best_discharge | bool(false) %}
 
-        {% if price_state == '
+        {% if price_state == 'low' and best_c and soc < p_soc_max %}
+          {{ mode_charge }}
+        {% elif price_state == 'high' and best_d and soc > p_soc_min %}
+          {{ mode_discharge }}
+        {% elif rd > deadband and soc > soc_min %}
+          {{ mode_discharge }}
+        {% elif rd < (0 - deadband) and soc < 100 %}
+          {{ mode_charge }}
+        {% else %}
+          {{ mode_none }}
+        {% endif %}
+
+      target_power: >-
+        {% set rd = real_demand | float(0) %}
+        {% set deadband = v_deadband | float(300) %}
+        {% set max_chg = v_max_charge | float(8000) %}
+        {% set max_dis = v_max_discharge | float(6000) %}
+        {% set soc_min = v_soc_min | float(10) %}
+        {% set p_soc_min = v_price_soc_min | float(20) %}
+        {% set p_soc_max = v_price_soc_max | float(100) %}
+        {% set p_chg_pwr = v_price_charge_pwr | float(4000) %}
+        {% set p_dis_pwr = v_price_discharge_pwr | float(4000) %}
+        {% set best_c = is_best_charge | bool(false) %}
+        {% set best_d = is_best_discharge | bool(false) %}
+
+        {% if price_state == 'low' and best_c and soc < p_soc_max %}
+          {{ p_chg_pwr }}
+        {% elif price_state == 'high' and best_d and soc > p_soc_min %}
+          {{ p_dis_pwr }}
+        {% elif rd > deadband and soc > soc_min %}
+          {% set power = rd | round(0) | int %}
+          {% if power < 0 %}{% set power = 0 %}{% endif %}
+          {{ power if power < max_dis else max_dis }}
+        {% elif rd < (0 - deadband) and soc < 100 %}
+          {% set power = (rd | abs) | round(0) | int %}
+          {% if power < 0 %}{% set power = 0 %}{% endif %}
+          {{ power if power < max_chg else max_chg }}
+        {% else %}
+          0
+        {% endif %}
+
+  - service: system_log.write
+    data:
+      level: info
+      message: >
+        [Nul-op-de-meter] prijs={{ price_state }} (cp={{ current_price }}), best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }},
+        grid={{ grid_w }}W, real_demand={{ real_demand }}W, soc={{ soc }}%, target_mode={{ target_mode }}, target_power={{ target_power }}W
+
+  # ACTIES: Altijd wegschrijven (met de | string bugfix)
+  - choose:
+      - conditions: >-
+          {{ (cur_mode == mode_charge and target_mode == mode_discharge)
+             or (cur_mode == mode_discharge and target_mode == mode_charge) }}
+        sequence:
+          - service: select.select_option
+            target: { entity_id: !input select_force_mode }
+            data: { option: "{{ mode_none | string }}" }
+          - delay: { seconds: 2 }
+          - choose:
+              - conditions: "{{ target_mode == mode_charge }}"
+                sequence:
+                  - service: number.set_value
+                    target: { entity_id: !input number_charge_power }
+                    data: { value: "{{ target_power }}" }
+              - conditions: "{{ target_mode == mode_discharge }}"
+                sequence:
+                  - service: number.set_value
+                    target: { entity_id: !input number_discharge_power }
+                    data: { value: "{{ target_power }}" }
+          - service: select.select_option
+            target: { entity_id: !input select_force_mode }
+            data: { option: "{{ target_mode | string }}" }
+
+      - conditions: "{{ target_mode != mode_none }}"
+        sequence:
+          - choose:
+              - conditions: "{{ target_mode == mode_charge }}"
+                sequence:
+                  - service: number.set_value
+                    target: { entity_id: !input number_charge_power }
+                    data: { value: "{{ target_power }}" }
+              - conditions: "{{ target_mode == mode_discharge }}"
+                sequence:
+                  - service: number.set_value
+                    target: { entity_id: !input number_discharge_power }
+                    data: { value: "{{ target_power }}" }
+          
+          - service: select.select_option
+            target: { entity_id: !input select_force_mode }
+            data: { option: "{{ target_mode | string }}" }
+
+    default:
+      - service: select.select_option
+        target: { entity_id: !input select_force_mode }
+        data: { option: "{{ mode_none | string }}" }
+
+mode: single
