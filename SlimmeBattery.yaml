@@ -1,14 +1,34 @@
 blueprint:
-  name: Nul op de Meter + Slim Tarief (Marge Check & Bugfix) - Solis Thuisbatterij
+  name: Nul op de Meter + Slim Tarief (Volledig Instelbaar) - Solis Thuisbatterij
   description: >
     Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in losse forecast-sensoren.
     
-    Nieuw: Controleert of de winstmarge groot genoeg is voordat hij besluit te laden.
-    Bugfix: 'None' wordt nu geforceerd als string verstuurd, voorkomt log-errors.
-    LET OP: Overschrijft ALTIJD elke 20 seconden de waardes om de omvormer wakker te houden.
+    - Instelbare uitvoer-frequentie (bijv. elke 10 of 20 seconden).
+    - Marge-check: controleert de winstmarge voor opladen.
+    - Bugfix: 'None' safe-strings voorkomen errors in de log.
+    - Overschrijft ALTIJD actief de omvormer om deze wakker te houden.
   domain: automation
 
   input:
+    # ---- Snelheid ----
+    update_interval:
+      name: "Uitvoer-frequentie"
+      description: "Hoe vaak moet de automatisering het verbruik controleren en de omvormer aansturen?"
+      default: "/20"
+      selector:
+        select:
+          options:
+            - label: "Elke 5 seconden (Agressief, kans op jojo-effect!)"
+              value: "/5"
+            - label: "Elke 10 seconden (Snel)"
+              value: "/10"
+            - label: "Elke 15 seconden"
+              value: "/15"
+            - label: "Elke 20 seconden (Aanbevolen & Stabiel)"
+              value: "/20"
+            - label: "Elke 30 seconden (Rustig)"
+              value: "/30"
+
     # ---- Sensors (verplicht) ----
     sensor_soc:
       name: "Batterij SOC (%)"
@@ -49,7 +69,7 @@ blueprint:
         
     price_charge_min_difference:
       name: "Prijsverschil: Minimaal verschil voor opladen (€)"
-      description: "De actuele prijs moet minimaal dit bedrag (bijv. 0.10) lager zijn dan de hoogste prijs in de komende uren om geforceerd te laden. Voorkomt onnodige slijtage."
+      description: "De actuele prijs moet minimaal dit bedrag (bijv. 0.10) lager zijn dan de hoogste prijs in de komende uren om geforceerd te laden."
       default: 0.10
       selector:
         number: {min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€", mode: slider}
@@ -149,7 +169,7 @@ variables:
 
 trigger:
   - platform: time_pattern
-    seconds: "/20"
+    seconds: !input update_interval
 
 condition: []
 
@@ -232,95 +252,4 @@ action:
         {% set p_soc_min = v_price_soc_min | float(20) %}
         {% set p_soc_max = v_price_soc_max | float(100) %}
 
-        {% if price_state == 'low' and is_best_charge and soc < p_soc_max %}
-          {{ mode_charge }}
-        {% elif price_state == 'high' and is_best_discharge and soc > p_soc_min %}
-          {{ mode_discharge }}
-        {% elif rd > deadband and soc > soc_min %}
-          {{ mode_discharge }}
-        {% elif rd < (deadband * -1) and soc < 100 %}
-          {{ mode_charge }}
-        {% else %}
-          {{ mode_none }}
-        {% endif %}
-
-      target_power: >-
-        {% set rd = real_demand | float(0) %}
-        {% set deadband = v_deadband | float(300) %}
-        {% set max_chg = v_max_charge | float(8000) %}
-        {% set max_dis = v_max_discharge | float(6000) %}
-        {% set soc_min = v_soc_min | float(10) %}
-        
-        {% set p_soc_min = v_price_soc_min | float(20) %}
-        {% set p_soc_max = v_price_soc_max | float(100) %}
-        {% set p_chg_pwr = v_price_charge_pwr | float(4000) %}
-        {% set p_dis_pwr = v_price_discharge_pwr | float(4000) %}
-
-        {% if price_state == 'low' and is_best_charge and soc < p_soc_max %}
-          {{ p_chg_pwr }}
-        {% elif price_state == 'high' and is_best_discharge and soc > p_soc_min %}
-          {{ p_dis_pwr }}
-        {% elif rd > deadband and soc > soc_min %}
-          {{ [[rd | round(0) | int, 0] | max, max_dis] | min }}
-        {% elif rd < (deadband * -1) and soc < 100 %}
-          {{ [[(rd | abs) | round(0) | int, 0] | max, max_chg] | min }}
-        {% else %}
-          0
-        {% endif %}
-
-  - service: system_log.write
-    data:
-      level: info
-      message: >
-        [Nul-op-de-meter] prijs={{ price_state }} (cp={{ current_price }}), best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }},
-        grid={{ grid_w }}W, real_demand={{ real_demand }}W, soc={{ soc }}%, target_mode={{ target_mode }}, target_power={{ target_power }}W
-
-  # ACTIES: Altijd wegschrijven (met de | string bugfix!)
-  - choose:
-      - conditions: >-
-          {{ (cur_mode == mode_charge and target_mode == mode_discharge)
-             or (cur_mode == mode_discharge and target_mode == mode_charge) }}
-        sequence:
-          - service: select.select_option
-            target: { entity_id: !input select_force_mode }
-            data: { option: "{{ mode_none | string }}" }
-          - delay: { seconds: 2 }
-          - choose:
-              - conditions: "{{ target_mode == mode_charge }}"
-                sequence:
-                  - service: number.set_value
-                    target: { entity_id: !input number_charge_power }
-                    data: { value: "{{ target_power }}" }
-              - conditions: "{{ target_mode == mode_discharge }}"
-                sequence:
-                  - service: number.set_value
-                    target: { entity_id: !input number_discharge_power }
-                    data: { value: "{{ target_power }}" }
-          - service: select.select_option
-            target: { entity_id: !input select_force_mode }
-            data: { option: "{{ target_mode | string }}" }
-
-      - conditions: "{{ target_mode != mode_none }}"
-        sequence:
-          - choose:
-              - conditions: "{{ target_mode == mode_charge }}"
-                sequence:
-                  - service: number.set_value
-                    target: { entity_id: !input number_charge_power }
-                    data: { value: "{{ target_power }}" }
-              - conditions: "{{ target_mode == mode_discharge }}"
-                sequence:
-                  - service: number.set_value
-                    target: { entity_id: !input number_discharge_power }
-                    data: { value: "{{ target_power }}" }
-          
-          - service: select.select_option
-            target: { entity_id: !input select_force_mode }
-            data: { option: "{{ target_mode | string }}" }
-
-    default:
-      - service: select.select_option
-        target: { entity_id: !input select_force_mode }
-        data: { option: "{{ mode_none | string }}" }
-
-mode: single
+        {% if price_state == '
