@@ -1,12 +1,8 @@
 blueprint:
   name: Nul op de Meter + Slim Tarief (Volledig Instelbaar) - Solis Thuisbatterij
   description: >
-    Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in losse forecast-sensoren.
+    Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in forecast
     
-    - Instelbare uitvoer-frequentie.
-    - Marge-check: controleert de winstmarge voor opladen.
-    - Bugfix: Template parsing errors opgelost en boolean-fixes toegepast.
-  domain: automation
 
   input:
     # ---- Snelheid ----
