@@ -1,9 +1,10 @@
 blueprint:
-  name: Nul op de Meter + Slim Tarief (Marge Check) - Solis Thuisbatterij
+  name: Nul op de Meter + Slim Tarief (Marge Check & Bugfix) - Solis Thuisbatterij
   description: >
     Houdt het netverbruik op 0 W. Laadt en ontlaadt geforceerd op basis van stroomprijzen én kijkt vooruit in losse forecast-sensoren.
     
-    Nieuw: Controleert of de winstmarge (verschil tussen laad- en ontlaadmoment) groot genoeg is voordat hij besluit te laden!
+    Nieuw: Controleert of de winstmarge groot genoeg is voordat hij besluit te laden.
+    Bugfix: 'None' wordt nu geforceerd als string verstuurd, voorkomt log-errors.
     LET OP: Overschrijft ALTIJD elke 20 seconden de waardes om de omvormer wakker te houden.
   domain: automation
 
@@ -205,10 +206,7 @@ action:
           {% set min_f = ns.prices | min if ns.prices else cp %}
           {% set max_f = ns.prices | max if ns.prices else cp %}
           
-          {# Best charge: huidige prijs is de laagste én het verschil met de komende maximale prijs is groter dan de ingestelde drempel #}
           {% set is_best_c = 'true' if (cp <= min_f) and ((max_f - cp) >= min_diff) else 'false' %}
-          
-          {# Best discharge blijft ongewijzigd: verkopen als de prijs nú het hoogst is #}
           {% set is_best_d = 'true' if cp >= max_f else 'false' %}
           
           {{ is_best_c }},{{ is_best_d }},{{ min_f }},{{ max_f }}
@@ -277,7 +275,7 @@ action:
         [Nul-op-de-meter] prijs={{ price_state }} (cp={{ current_price }}), best_charge={{ is_best_charge }}, best_discharge={{ is_best_discharge }},
         grid={{ grid_w }}W, real_demand={{ real_demand }}W, soc={{ soc }}%, target_mode={{ target_mode }}, target_power={{ target_power }}W
 
-  # ACTIES: Altijd wegschrijven
+  # ACTIES: Altijd wegschrijven (met de | string bugfix!)
   - choose:
       - conditions: >-
           {{ (cur_mode == mode_charge and target_mode == mode_discharge)
@@ -285,7 +283,7 @@ action:
         sequence:
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
-            data: { option: "{{ mode_none }}" }
+            data: { option: "{{ mode_none | string }}" }
           - delay: { seconds: 2 }
           - choose:
               - conditions: "{{ target_mode == mode_charge }}"
@@ -300,7 +298,7 @@ action:
                     data: { value: "{{ target_power }}" }
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
-            data: { option: "{{ target_mode }}" }
+            data: { option: "{{ target_mode | string }}" }
 
       - conditions: "{{ target_mode != mode_none }}"
         sequence:
@@ -318,11 +316,11 @@ action:
           
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
-            data: { option: "{{ target_mode }}" }
+            data: { option: "{{ target_mode | string }}" }
 
     default:
       - service: select.select_option
         target: { entity_id: !input select_force_mode }
-        data: { option: "{{ mode_none }}" }
+        data: { option: "{{ mode_none | string }}" }
 
 mode: single
