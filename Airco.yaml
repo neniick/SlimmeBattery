@@ -1,120 +1,120 @@
 blueprint:
-  name: Slimme Airco Besturing (Multi-Zone, Accu, Dode Zone & Aanwezigheid)
-  description: Uiterst geavanceerde regeling met dode zone voor buiten, uitschakelvertraging voor bewoners en een thermische batterij-functie.
+  name: "Slimme Airco Besturing (Multi-Zone, Accu, Dode Zone & Aanwezigheid)"
+  description: "Uiterst geavanceerde regeling met dode zone voor buiten, uitschakelvertraging voor bewoners en een thermische batterij-functie."
   domain: automation
   input:
     # --- AANWEZIGHEID ---
     telefoons:
-      name: Telefoons van Bewoners (WiFi)
-      description: Selecteer alle telefoons. De airco gaat pas naar de 'Weg' modus als IEDEREEN weg is.
+      name: "Telefoons van Bewoners (WiFi)"
+      description: "Selecteer alle telefoons. De airco gaat pas naar de Weg modus als IEDEREEN weg is."
       selector:
         entity:
           domain: device_tracker
           multiple: true
     afwezigheid_minuten:
-      name: Vertraging bij Vertrek (Minuten)
-      description: Hoelang moet iedereen weg zijn voordat de airco uitschakelt/verlaagt?
+      name: "Vertraging bij Vertrek (Minuten)"
+      description: "Hoelang moet iedereen weg zijn voordat de airco uitschakelt/verlaagt?"
       default: 15
       selector: { number: { min: 0, max: 60, step: 1, unit_of_measurement: min } }
 
     # --- APPARATEN KIEZEN ---
     airco_woonkamer:
-      name: Airco Woonkamer
+      name: "Airco Woonkamer"
       selector: { entity: { domain: climate } }
     airco_keuken:
-      name: Airco Keuken
+      name: "Airco Keuken"
       selector: { entity: { domain: climate } }
     airco_boven:
-      name: Airco Boven
+      name: "Airco Boven"
       selector: { entity: { domain: climate } }
     buiten_sensor:
-      name: Buitentemperatuur Sensor
+      name: "Buitentemperatuur Sensor"
       default: sensor.temperatuur
       selector: { entity: { domain: sensor, device_class: temperature } }
 
     # --- THERMISCHE BATTERIJ ---
     accu_sensor:
-      name: Thuisaccu SOC Sensor (%)
+      name: "Thuisaccu SOC Sensor (%)"
       default: sensor.accu_omvormer_battery_soc
       selector: { entity: { domain: sensor } }
     accu_drempel:
-      name: Accu Vol Drempel (%)
-      description: Boven dit percentage gaat de airco extra verwarmen of koelen met gratis stroom.
+      name: "Accu Vol Drempel (%)"
+      description: "Boven dit percentage gaat de airco extra verwarmen of koelen met gratis stroom."
       default: 95
       selector: { number: { min: 50, max: 100, step: 1, unit_of_measurement: "%" } }
     accu_boost:
-      name: Accu Boost (Graden)
-      description: Hoeveel graden mag de airco afwijken van je normale doel als de accu vol is?
+      name: "Accu Boost (Graden)"
+      description: "Hoeveel graden mag de airco afwijken van je normale doel als de accu vol is?"
       default: 1.0
       selector: { number: { min: 0.0, max: 3.0, step: 0.5, unit_of_measurement: °C } }
 
     # --- TIJDEN INSTELLEN ---
     tijd_dag:
-      name: Tijd Start Dag (Thuis)
+      name: "Tijd Start Dag (Thuis)"
       default: "07:00:00"
       selector: { time: {} }
     tijd_nacht:
-      name: Tijd Start Nacht
+      name: "Tijd Start Nacht"
       default: "23:00:00"
       selector: { time: {} }
 
     # --- TEMPERATUREN WOONKAMER ---
     wk_temp_home:
-      name: Woonkamer - Thuis (Dag)
+      name: "Woonkamer - Thuis (Dag)"
       default: 21
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
     wk_temp_away:
-      name: Woonkamer - Weg
+      name: "Woonkamer - Weg"
       default: 18
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
     wk_temp_night:
-      name: Woonkamer - Nacht
+      name: "Woonkamer - Nacht"
       default: 18
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- TEMPERATUREN KEUKEN ---
     kk_temp_home:
-      name: Keuken - Thuis (Dag)
+      name: "Keuken - Thuis (Dag)"
       default: 21
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
     kk_temp_away:
-      name: Keuken - Weg
+      name: "Keuken - Weg"
       default: 18
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
     kk_temp_night:
-      name: Keuken - Nacht
+      name: "Keuken - Nacht"
       default: 18
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- TEMPERATUREN BOVEN ---
     bv_temp_home:
-      name: Boven - Thuis (Dag)
+      name: "Boven - Thuis (Dag)"
       default: 19
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
     bv_temp_away:
-      name: Boven - Weg
+      name: "Boven - Weg"
       default: 16
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
     bv_temp_night:
-      name: Boven - Nacht
+      name: "Boven - Nacht"
       default: 16
       selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- GLOBALE WEER & MARGE INSTELLINGEN ---
     buiten_temp_verwarmen:
-      name: Verwarmen als het buiten kouder is dan:
+      name: "Verwarmen als het buiten kouder is dan:"
       default: 18
       selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
     buiten_temp_koelen:
-      name: Koelen als het buiten warmer is dan:
+      name: "Koelen als het buiten warmer is dan:"
       default: 22
       selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
     marge_boven:
-      name: Marge Boven Doel
+      name: "Marge Boven Doel"
       default: 1.0
       selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
     marge_onder:
-      name: Marge Onder Doel
+      name: "Marge Onder Doel"
       default: 1.0
       selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
 
@@ -132,17 +132,14 @@ trigger:
       - !input airco_keuken
       - !input airco_boven
     attribute: current_temperature
-  # Trigger als telefoons weggaan mét vertraging
   - platform: state
     entity_id: !input telefoons
     to: 'not_home'
     for:
       minutes: !input afwezigheid_minuten
-  # Trigger direct als er weer een telefoon verbindt
   - platform: state
     entity_id: !input telefoons
     to: 'home'
-  # Trigger als de accu boven of onder de drempel komt
   - platform: numeric_state
     entity_id: !input accu_sensor
     above: !input accu_drempel
@@ -244,118 +241,4 @@ action:
       # Actuele temperatuur ophalen per kamer
       huidig_wk: "{{ state_attr(airco_wk_var, 'current_temperature') | float(doel_wk) }}"
       huidig_kk: "{{ state_attr(airco_kk_var, 'current_temperature') | float(doel_kk) }}"
-      huidig_bv: "{{ state_attr(airco_bv_var, 'current_temperature') | float(doel_bv) }}"
-
-  # 3. ACTIES UITVOEREN
-  - choose:
-      # --- ALLES UIT (DODE ZONE) ---
-      # Als de temperatuur buiten tussen de grenzen valt, gaat gekozen_modus op 'off'
-      - conditions:
-          - condition: template
-            value_template: "{{ gekozen_modus == 'off' }}"
-        sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: 
-                - !input airco_woonkamer
-                - !input airco_keuken
-                - !input airco_boven
-            data:
-              hvac_mode: "off"
-              
-    default:
-      # --- BEOORDELING WOONKAMER ---
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_wk >= (doel_wk | float + marge_b | float) }}
-                  {% else %}
-                    {{ huidig_wk <= (doel_wk | float - marge_o | float) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_woonkamer
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_wk <= (doel_wk | float - marge_o | float) }}
-                  {% else %}
-                    {{ huidig_wk >= (doel_wk | float + marge_b | float) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input airco_woonkamer
-                data:
-                  temperature: "{{ doel_wk }}"
-                  hvac_mode: "{{ gekozen_modus }}"
-
-      # --- BEOORDELING KEUKEN ---
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_kk >= (doel_kk | float + marge_b | float) }}
-                  {% else %}
-                    {{ huidig_kk <= (doel_kk | float - marge_o | float) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_keuken
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_kk <= (doel_kk | float - marge_o | float) }}
-                  {% else %}
-                    {{ huidig_kk >= (doel_kk | float + marge_b | float) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input airco_keuken
-                data:
-                  temperature: "{{ doel_kk }}"
-                  hvac_mode: "{{ gekozen_modus }}"
-
-      # --- BEOORDELING BOVEN ---
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_bv >= (doel_bv | float + marge_b | float) }}
-                  {% else %}
-                    {{ huidig_bv <= (doel_bv | float - marge_o | float) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_boven
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_bv <= (doel_bv | float - marge_o | float) }}
-                  {% else %}
-                    {{ huidig_bv >= (doel_bv | float + marge_b | float) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input airco_boven
-                data:
-                  temperature: "{{ doel_bv }}"
-                  hvac_mode: "{{ gekozen_modus }}"
+      huidig_bv: "{{ state_attr(airco_bv_var, 'current_temperature') | float(do
