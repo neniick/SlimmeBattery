@@ -241,4 +241,117 @@ action:
       # Actuele temperatuur ophalen per kamer
       huidig_wk: "{{ state_attr(airco_wk_var, 'current_temperature') | float(doel_wk) }}"
       huidig_kk: "{{ state_attr(airco_kk_var, 'current_temperature') | float(doel_kk) }}"
-      huidig_bv: "{{ state_attr(airco_bv_var, 'current_temperature') | float(do
+      huidig_bv: "{{ state_attr(airco_bv_var, 'current_temperature') | float(doel_bv) }}"
+
+  # 3. ACTIES UITVOEREN
+  - choose:
+      # --- ALLES UIT (DODE ZONE) ---
+      - conditions:
+          - condition: template
+            value_template: "{{ gekozen_modus == 'off' }}"
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: 
+                - !input airco_woonkamer
+                - !input airco_keuken
+                - !input airco_boven
+            data:
+              hvac_mode: "off"
+              
+    default:
+      # --- BEOORDELING WOONKAMER ---
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% if gekozen_modus == 'heat' %}
+                    {{ huidig_wk >= (doel_wk | float + marge_b | float) }}
+                  {% else %}
+                    {{ huidig_wk <= (doel_wk | float - marge_o | float) }}
+                  {% endif %}
+            sequence:
+              - service: climate.set_hvac_mode
+                target:
+                  entity_id: !input airco_woonkamer
+                data:
+                  hvac_mode: "off"
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% if gekozen_modus == 'heat' %}
+                    {{ huidig_wk <= (doel_wk | float - marge_o | float) }}
+                  {% else %}
+                    {{ huidig_wk >= (doel_wk | float + marge_b | float) }}
+                  {% endif %}
+            sequence:
+              - service: climate.set_temperature
+                target:
+                  entity_id: !input airco_woonkamer
+                data:
+                  temperature: "{{ doel_wk }}"
+                  hvac_mode: "{{ gekozen_modus }}"
+
+      # --- BEOORDELING KEUKEN ---
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% if gekozen_modus == 'heat' %}
+                    {{ huidig_kk >= (doel_kk | float + marge_b | float) }}
+                  {% else %}
+                    {{ huidig_kk <= (doel_kk | float - marge_o | float) }}
+                  {% endif %}
+            sequence:
+              - service: climate.set_hvac_mode
+                target:
+                  entity_id: !input airco_keuken
+                data:
+                  hvac_mode: "off"
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% if gekozen_modus == 'heat' %}
+                    {{ huidig_kk <= (doel_kk | float - marge_o | float) }}
+                  {% else %}
+                    {{ huidig_kk >= (doel_kk | float + marge_b | float) }}
+                  {% endif %}
+            sequence:
+              - service: climate.set_temperature
+                target:
+                  entity_id: !input airco_keuken
+                data:
+                  temperature: "{{ doel_kk }}"
+                  hvac_mode: "{{ gekozen_modus }}"
+
+      # --- BEOORDELING BOVEN ---
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% if gekozen_modus == 'heat' %}
+                    {{ huidig_bv >= (doel_bv | float + marge_b | float) }}
+                  {% else %}
+                    {{ huidig_bv <= (doel_bv | float - marge_o | float) }}
+                  {% endif %}
+            sequence:
+              - service: climate.set_hvac_mode
+                target:
+                  entity_id: !input airco_boven
+                data:
+                  hvac_mode: "off"
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% if gekozen_modus == 'heat' %}
+                    {{ huidig_bv <= (doel_bv | float - marge_o | float) }}
+                  {% else %}
+                    {{ huidig_bv >= (doel_bv | float + marge_b | float) }}
+                  {% endif %}
+            sequence:
+              - service: climate.set_temperature
+                target:
+                  entity_id: !input airco_boven
+                data:
+                  temperature: "{{ doel_bv }}"
+                  hvac_mode: "{{ gekozen_modus }}"
