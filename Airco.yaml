@@ -1,36 +1,104 @@
 blueprint:
-  name: "Slimme Airco Besturing (Multi-Zone, Accu, Dode Zone & Aanwezigheid)"
-  description: "Uiterst geavanceerde regeling met dode zone voor buiten, uitschakelvertraging voor bewoners en een thermische batterij-functie."
+  name: "Slimme Airco Besturing (Per-Kamer Tijden, Pre-Bed & Accu)"
+  description: "Onafhankelijke schema's per airco, een pre-bed boost voor de slaapkamer, accu-integratie en aanwezigheidsdetectie."
   domain: automation
   input:
-    # --- AANWEZIGHEID ---
+    # --- AANWEZIGHEID & APPARATEN ---
     telefoons:
       name: "Telefoons van Bewoners (WiFi)"
-      description: "Selecteer alle telefoons. De airco gaat pas naar de Weg modus als IEDEREEN weg is."
-      selector:
-        entity:
-          domain: device_tracker
-          multiple: true
+      selector: { entity: { domain: device_tracker, multiple: true } }
     afwezigheid_minuten:
       name: "Vertraging bij Vertrek (Minuten)"
-      description: "Hoelang moet iedereen weg zijn voordat de airco uitschakelt/verlaagt?"
       default: 15
       selector: { number: { min: 0, max: 60, step: 1, unit_of_measurement: min } }
-
-    # --- APPARATEN KIEZEN ---
-    airco_woonkamer:
-      name: "Airco Woonkamer"
-      selector: { entity: { domain: climate } }
-    airco_keuken:
-      name: "Airco Keuken"
-      selector: { entity: { domain: climate } }
-    airco_boven:
-      name: "Airco Boven"
-      selector: { entity: { domain: climate } }
     buiten_sensor:
       name: "Buitentemperatuur Sensor"
       default: sensor.temperatuur
       selector: { entity: { domain: sensor, device_class: temperature } }
+
+    # --- INSTELLINGEN WOONKAMER ---
+    airco_woonkamer:
+      name: "Airco Woonkamer"
+      selector: { entity: { domain: climate } }
+    wk_tijd_dag:
+      name: "Woonkamer - Start Dag"
+      default: "07:00:00"
+      selector: { time: {} }
+    wk_tijd_nacht:
+      name: "Woonkamer - Start Nacht"
+      default: "23:00:00"
+      selector: { time: {} }
+    wk_temp_home:
+      name: "Woonkamer - Temp Thuis (Dag)"
+      default: 21
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    wk_temp_away:
+      name: "Woonkamer - Temp Weg"
+      default: 18
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    wk_temp_night:
+      name: "Woonkamer - Temp Nacht"
+      default: 18
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+
+    # --- INSTELLINGEN KEUKEN ---
+    airco_keuken:
+      name: "Airco Keuken"
+      selector: { entity: { domain: climate } }
+    kk_tijd_dag:
+      name: "Keuken - Start Dag"
+      default: "07:00:00"
+      selector: { time: {} }
+    kk_tijd_nacht:
+      name: "Keuken - Start Nacht"
+      default: "23:00:00"
+      selector: { time: {} }
+    kk_temp_home:
+      name: "Keuken - Temp Thuis (Dag)"
+      default: 21
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    kk_temp_away:
+      name: "Keuken - Temp Weg"
+      default: 18
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    kk_temp_night:
+      name: "Keuken - Temp Nacht"
+      default: 18
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+
+    # --- INSTELLINGEN BOVEN ---
+    airco_boven:
+      name: "Airco Boven"
+      selector: { entity: { domain: climate } }
+    bv_tijd_dag:
+      name: "Boven - Start Dag"
+      default: "07:00:00"
+      selector: { time: {} }
+    bv_tijd_pre_bed:
+      name: "Boven - Start Pre-Bed (Tijdelijk Verwarmen/Koelen)"
+      description: "De tijd waarop de slaapkamer alvast op een aangenamere temperatuur wordt gebracht."
+      default: "22:00:00"
+      selector: { time: {} }
+    bv_tijd_nacht:
+      name: "Boven - Start Nacht (Slapen)"
+      default: "23:00:00"
+      selector: { time: {} }
+    bv_temp_home:
+      name: "Boven - Temp Thuis (Dag)"
+      default: 19
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_temp_pre_bed:
+      name: "Boven - Temp Pre-Bed"
+      default: 21
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_temp_away:
+      name: "Boven - Temp Weg"
+      default: 16
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_temp_night:
+      name: "Boven - Temp Nacht"
+      default: 16
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- THERMISCHE BATTERIJ ---
     accu_sensor:
@@ -39,66 +107,12 @@ blueprint:
       selector: { entity: { domain: sensor } }
     accu_drempel:
       name: "Accu Vol Drempel (%)"
-      description: "Boven dit percentage gaat de airco extra verwarmen of koelen met gratis stroom."
       default: 95
       selector: { number: { min: 50, max: 100, step: 1, unit_of_measurement: "%" } }
     accu_boost:
       name: "Accu Boost (Graden)"
-      description: "Hoeveel graden mag de airco afwijken van je normale doel als de accu vol is?"
       default: 1.0
       selector: { number: { min: 0.0, max: 3.0, step: 0.5, unit_of_measurement: °C } }
-
-    # --- TIJDEN INSTELLEN ---
-    tijd_dag:
-      name: "Tijd Start Dag (Thuis)"
-      default: "07:00:00"
-      selector: { time: {} }
-    tijd_nacht:
-      name: "Tijd Start Nacht"
-      default: "23:00:00"
-      selector: { time: {} }
-
-    # --- TEMPERATUREN WOONKAMER ---
-    wk_temp_home:
-      name: "Woonkamer - Thuis (Dag)"
-      default: 21
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_temp_away:
-      name: "Woonkamer - Weg"
-      default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_temp_night:
-      name: "Woonkamer - Nacht"
-      default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-
-    # --- TEMPERATUREN KEUKEN ---
-    kk_temp_home:
-      name: "Keuken - Thuis (Dag)"
-      default: 21
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_temp_away:
-      name: "Keuken - Weg"
-      default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_temp_night:
-      name: "Keuken - Nacht"
-      default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-
-    # --- TEMPERATUREN BOVEN ---
-    bv_temp_home:
-      name: "Boven - Thuis (Dag)"
-      default: 19
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_temp_away:
-      name: "Boven - Weg"
-      default: 16
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_temp_night:
-      name: "Boven - Nacht"
-      default: 16
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- GLOBALE WEER & MARGE INSTELLINGEN ---
     buiten_temp_verwarmen:
@@ -120,12 +134,22 @@ blueprint:
 
 mode: single
 
-# 1. TRIGGERS: Wanneer moet de code ontwaken?
+# 1. TRIGGERS: De code luistert nu naar 7 verschillende tijden!
 trigger:
   - platform: time
-    at: !input tijd_dag
+    at: !input wk_tijd_dag
   - platform: time
-    at: !input tijd_nacht
+    at: !input wk_tijd_nacht
+  - platform: time
+    at: !input kk_tijd_dag
+  - platform: time
+    at: !input kk_tijd_nacht
+  - platform: time
+    at: !input bv_tijd_dag
+  - platform: time
+    at: !input bv_tijd_pre_bed
+  - platform: time
+    at: !input bv_tijd_nacht
   - platform: state
     entity_id: 
       - !input airco_woonkamer
@@ -150,8 +174,7 @@ trigger:
 action:
   # 2. VARIABELEN & REKENWERK
   - variables:
-      tijd_dag_var: !input tijd_dag
-      tijd_nacht_var: !input tijd_nacht
+      # Globale vars
       buiten_sensor_var: !input buiten_sensor
       omslag_koud: !input buiten_temp_verwarmen
       omslag_warm: !input buiten_temp_koelen
@@ -159,83 +182,103 @@ action:
       accu_sensor_var: !input accu_sensor
       accu_drempel_var: !input accu_drempel
       accu_boost_var: !input accu_boost
-      
       marge_b: !input marge_boven
       marge_o: !input marge_onder
       
+      # Woonkamer vars
       airco_wk_var: !input airco_woonkamer
-      airco_kk_var: !input airco_keuken
-      airco_bv_var: !input airco_boven
-
+      wk_t_dag: !input wk_tijd_dag
+      wk_t_nacht: !input wk_tijd_nacht
       wk_h: !input wk_temp_home
       wk_a: !input wk_temp_away
       wk_n: !input wk_temp_night
+      
+      # Keuken vars
+      airco_kk_var: !input airco_keuken
+      kk_t_dag: !input kk_tijd_dag
+      kk_t_nacht: !input kk_tijd_nacht
       kk_h: !input kk_temp_home
       kk_a: !input kk_temp_away
       kk_n: !input kk_temp_night
+      
+      # Boven vars
+      airco_bv_var: !input airco_boven
+      bv_t_dag: !input bv_tijd_dag
+      bv_t_pre: !input bv_tijd_pre_bed
+      bv_t_nacht: !input bv_tijd_nacht
       bv_h: !input bv_temp_home
+      bv_p: !input bv_temp_pre_bed
       bv_a: !input bv_temp_away
       bv_n: !input bv_temp_night
       
-      # Controleer via een filter (expand) of er in de lijst met telefoons minstens één 'home' is
+      # Is er iemand thuis?
       iemand_thuis: >
         {{ expand(telefoons_var) | selectattr('state', 'eq', 'home') | list | length > 0 }}
 
-      is_dag: >
-        {% set start = today_at(tijd_dag_var) %}
-        {% set end = today_at(tijd_nacht_var) %}
-        {% if start < end %}
-          {{ start <= now() < end }}
-        {% else %}
-          {{ now() >= start or now() < end }}
-        {% endif %}
+      # Dag/Nacht schema per kamer berekenen
+      is_dag_wk: >
+        {% set start = today_at(wk_t_dag) %}
+        {% set end = today_at(wk_t_nacht) %}
+        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
+        
+      is_dag_kk: >
+        {% set start = today_at(kk_t_dag) %}
+        {% set end = today_at(kk_t_nacht) %}
+        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
+        
+      is_dag_bv: >
+        {% set start = today_at(bv_t_dag) %}
+        {% set end = today_at(bv_t_nacht) %}
+        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
+        
+      is_pre_bed_bv: >
+        {% set start = today_at(bv_t_pre) %}
+        {% set end = today_at(bv_t_nacht) %}
+        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
       
-      # Dode Zone & Modus bepalen
+      # Modus bepalen o.b.v. buitentemperatuur
       buiten_temp: "{{ states(buiten_sensor_var) | float(20) }}"
       gekozen_modus: >
-        {% if buiten_temp <= omslag_koud %}
-          heat
-        {% elif buiten_temp >= omslag_warm %}
-          cool
-        {% else %}
-          off
-        {% endif %}
+        {% if buiten_temp <= omslag_koud %} heat
+        {% elif buiten_temp >= omslag_warm %} cool
+        {% else %} off {% endif %}
 
-      # Thermische batterij: Bereken de boost als het dag is, iemand thuis is, en de accu vol zit
+      # Accu boost bepalen PER KAMER (alleen toepassen als de kamer overdag-modus heeft)
       actuele_soc: "{{ states(accu_sensor_var) | float(0) }}"
-      boost: >
-        {% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag %}
-          {{ accu_boost_var }}
-        {% else %}
-          0
-        {% endif %}
+      boost_wk: >
+        {% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_wk %} {{ accu_boost_var }} {% else %} 0 {% endif %}
+      boost_kk: >
+        {% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_kk %} {{ accu_boost_var }} {% else %} 0 {% endif %}
+      boost_bv: >
+        {% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_bv %} {{ accu_boost_var }} {% else %} 0 {% endif %}
         
-      # Huidig DOEL berekenen per kamer + de actuele 'gratis stroom' boost
+      # Doeltemperaturen berekenen (Inclusief Pre-Bed voor boven!)
       doel_wk_basis: >
         {% if not iemand_thuis %} {{ wk_a }}
-        {% elif not is_dag %} {{ wk_n }}
+        {% elif not is_dag_wk %} {{ wk_n }}
         {% else %} {{ wk_h }} {% endif %}
       doel_wk: >
-        {% if gekozen_modus == 'heat' %} {{ doel_wk_basis | float + boost | float }}
-        {% elif gekozen_modus == 'cool' %} {{ doel_wk_basis | float - boost | float }}
+        {% if gekozen_modus == 'heat' %} {{ doel_wk_basis | float + boost_wk | float }}
+        {% elif gekozen_modus == 'cool' %} {{ doel_wk_basis | float - boost_wk | float }}
         {% else %} {{ doel_wk_basis | float }} {% endif %}
         
       doel_kk_basis: >
         {% if not iemand_thuis %} {{ kk_a }}
-        {% elif not is_dag %} {{ kk_n }}
+        {% elif not is_dag_kk %} {{ kk_n }}
         {% else %} {{ kk_h }} {% endif %}
       doel_kk: >
-        {% if gekozen_modus == 'heat' %} {{ doel_kk_basis | float + boost | float }}
-        {% elif gekozen_modus == 'cool' %} {{ doel_kk_basis | float - boost | float }}
+        {% if gekozen_modus == 'heat' %} {{ doel_kk_basis | float + boost_kk | float }}
+        {% elif gekozen_modus == 'cool' %} {{ doel_kk_basis | float - boost_kk | float }}
         {% else %} {{ doel_kk_basis | float }} {% endif %}
         
       doel_bv_basis: >
         {% if not iemand_thuis %} {{ bv_a }}
-        {% elif not is_dag %} {{ bv_n }}
+        {% elif is_pre_bed_bv %} {{ bv_p }}
+        {% elif not is_dag_bv %} {{ bv_n }}
         {% else %} {{ bv_h }} {% endif %}
       doel_bv: >
-        {% if gekozen_modus == 'heat' %} {{ doel_bv_basis | float + boost | float }}
-        {% elif gekozen_modus == 'cool' %} {{ doel_bv_basis | float - boost | float }}
+        {% if gekozen_modus == 'heat' %} {{ doel_bv_basis | float + boost_bv | float }}
+        {% elif gekozen_modus == 'cool' %} {{ doel_bv_basis | float - boost_bv | float }}
         {% else %} {{ doel_bv_basis | float }} {% endif %}
 
       # Actuele temperatuur ophalen per kamer
