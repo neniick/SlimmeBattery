@@ -1,0 +1,285 @@
+blueprint:
+  name: Slimme Airco Besturing (Aanwezigheid, Dag/Nacht & Marge)
+  description: Bestuur 3 airco's op basis van aanwezigheid (wifi), tijd, buitentemperatuur en een uitschakelmarge.
+  domain: automation
+  input:
+    # --- AANWEZIGHEID (TP-LINK) ---
+    telefoon_1:
+      name: Telefoon Bewoner 1 (WiFi)
+      description: Selecteer de TP-Link device_tracker van de eerste telefoon.
+      selector:
+        entity:
+          domain: device_tracker
+    telefoon_2:
+      name: Telefoon Bewoner 2 (WiFi)
+      description: Selecteer de TP-Link device_tracker van de tweede telefoon.
+      selector:
+        entity:
+          domain: device_tracker
+
+    # --- APPARATEN KIEZEN ---
+    airco_woonkamer:
+      name: Airco Woonkamer
+      selector:
+        entity:
+          domain: climate
+    airco_keuken:
+      name: Airco Keuken
+      selector:
+        entity:
+          domain: climate
+    airco_boven:
+      name: Airco Boven
+      selector:
+        entity:
+          domain: climate
+    buiten_sensor:
+      name: Buitentemperatuur Sensor
+      default: sensor.temperatuur
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    # --- TIJDEN INSTELLEN ---
+    tijd_dag:
+      name: Tijd voor Dag-schema
+      default: "07:00:00"
+      selector:
+        time: {}
+    tijd_nacht:
+      name: Tijd voor Nacht-schema
+      default: "23:00:00"
+      selector:
+        time: {}
+
+    # --- TEMPERATUREN INSTELLEN ---
+    temp_beneden_dag:
+      name: Doeltemperatuur Woonkamer/Keuken (Dag)
+      default: 21
+      selector:
+        number:
+          min: 16
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+    temp_beneden_nacht:
+      name: Doeltemperatuur Woonkamer/Keuken (Nacht)
+      default: 18
+      selector:
+        number:
+          min: 16
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+    temp_boven_dag:
+      name: Doeltemperatuur Boven (Dag)
+      default: 19
+      selector:
+        number:
+          min: 16
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+    omslag_temp_buiten:
+      name: Omslagtemperatuur (Verwarmen/Koelen)
+      default: 20
+      selector:
+        number:
+          min: 10
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+    marge_temp:
+      name: Uitschakel Marge
+      default: 3.0
+      selector:
+        number:
+          min: 1.0
+          max: 5.0
+          step: 0.5
+          unit_of_measurement: °C
+
+mode: single
+
+# 1. TRIGGERS: De automatisering start bij tijd, temperatuur óf als een telefoon verbindt/verbreekt
+trigger:
+  - platform: time
+    at: !input tijd_dag
+  - platform: time
+    at: !input tijd_nacht
+  - platform: state
+    entity_id: 
+      - !input airco_woonkamer
+      - !input airco_keuken
+      - !input airco_boven
+    attribute: current_temperature
+  - platform: state
+    entity_id: !input telefoon_1
+  - platform: state
+    entity_id: !input telefoon_2
+
+action:
+  # 2. VARIABELEN: Koppel de inputs en bereken de huidige situatie
+  - variables:
+      tijd_dag_var: !input tijd_dag
+      tijd_nacht_var: !input tijd_nacht
+      temp_ben_dag: !input temp_beneden_dag
+      temp_ben_nacht: !input temp_beneden_nacht
+      temp_bov_dag: !input temp_boven_dag
+      marge: !input marge_temp
+      buiten_sensor_var: !input buiten_sensor
+      omslag_temp: !input omslag_temp_buiten
+      telefoon_1_var: !input telefoon_1
+      telefoon_2_var: !input telefoon_2
+      
+      # Controleer of minstens één telefoon thuis is ('home')
+      iemand_thuis: >
+        {{ states(telefoon_1_var) == 'home' or states(telefoon_2_var) == 'home' }}
+
+      # Bepaal of het momenteel de 'dag' of 'nacht' periode is (qua tijd)
+      is_dag: >
+        {% set start = today_at(tijd_dag_var) %}
+        {% set end = today_at(tijd_nacht_var) %}
+        {% if start < end %}
+          {{ start <= now() < end }}
+        {% else %}
+          {{ now() >= start or now() < end }}
+        {% endif %}
+        
+      # NIEUWE LOGICA: Bepaal het doel, rekening houdend met aanwezigheid
+      doel_beneden: >
+        {% if not iemand_thuis %}
+          {{ temp_ben_nacht }}
+        {% elif is_dag %}
+          {{ temp_ben_dag }}
+        {% else %}
+          {{ temp_ben_nacht }}
+        {% endif %}
+        
+      doel_boven: >
+        {% if not iemand_thuis %}
+          off
+        {% elif is_dag %}
+          {{ temp_bov_dag }}
+        {% else %}
+          off
+        {% endif %}
+      
+      # Bepaal of we globaal aan het verwarmen of koelen zijn
+      buiten_temp: "{{ states(buiten_sensor_var) | float(20) }}"
+      gekozen_modus: "{% if buiten_temp < omslag_temp %}heat{% else %}cool{% endif %}"
+
+      # Haal de huidige binnentemperatuur per kamer op
+      huidig_wk: "{{ state_attr(airco_woonkamer, 'current_temperature') | float(doel_beneden) }}"
+      huidig_kk: "{{ state_attr(airco_keuken, 'current_temperature') | float(doel_beneden) }}"
+      huidig_bv: "{{ state_attr(airco_boven, 'current_temperature') | float(20) }}"
+
+  # 3. ACTIES: Beoordeel per kamer wat er moet gebeuren
+  # --- BEOORDELING WOONKAMER ---
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {% if gekozen_modus == 'heat' %}
+                {{ huidig_wk >= (doel_beneden | float + marge) }}
+              {% else %}
+                {{ huidig_wk <= (doel_beneden | float - marge) }}
+              {% endif %}
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input airco_woonkamer
+            data:
+              hvac_mode: "off"
+      - conditions:
+          - condition: template
+            value_template: >
+              {% if gekozen_modus == 'heat' %}
+                {{ huidig_wk <= (doel_beneden | float) }}
+              {% else %}
+                {{ huidig_wk >= (doel_beneden | float) }}
+              {% endif %}
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input airco_woonkamer
+            data:
+              temperature: "{{ doel_beneden }}"
+              hvac_mode: "{{ gekozen_modus }}"
+
+  # --- BEOORDELING KEUKEN ---
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {% if gekozen_modus == 'heat' %}
+                {{ huidig_kk >= (doel_beneden | float + marge) }}
+              {% else %}
+                {{ huidig_kk <= (doel_beneden | float - marge) }}
+              {% endif %}
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input airco_keuken
+            data:
+              hvac_mode: "off"
+      - conditions:
+          - condition: template
+            value_template: >
+              {% if gekozen_modus == 'heat' %}
+                {{ huidig_kk <= (doel_beneden | float) }}
+              {% else %}
+                {{ huidig_kk >= (doel_beneden | float) }}
+              {% endif %}
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input airco_keuken
+            data:
+              temperature: "{{ doel_beneden }}"
+              hvac_mode: "{{ gekozen_modus }}"
+
+  # --- BEOORDELING BOVEN ---
+  - choose:
+      - conditions:
+          # Als we in de nacht-periode zitten of niemand is thuis, gaat boven uit
+          - condition: template
+            value_template: "{{ doel_boven == 'off' }}"
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input airco_boven
+            data:
+              hvac_mode: "off"
+      - conditions:
+          # Uitschakelmarge overdag als er wel iemand thuis is
+          - condition: template
+            value_template: >
+              {% if gekozen_modus == 'heat' %}
+                {{ huidig_bv >= (doel_boven | float + marge) }}
+              {% else %}
+                {{ huidig_bv <= (doel_boven | float - marge) }}
+              {% endif %}
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input airco_boven
+            data:
+              hvac_mode: "off"
+      - conditions:
+          # Inschakelen / temperatuur instellen
+          - condition: template
+            value_template: >
+              {% if gekozen_modus == 'heat' %}
+                {{ huidig_bv <= (doel_boven | float) }}
+              {% else %}
+                {{ huidig_bv >= (doel_boven | float) }}
+              {% endif %}
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input airco_boven
+            data:
+              temperature: "{{ doel_boven }}"
+              hvac_mode: "{{ gekozen_modus }}"
