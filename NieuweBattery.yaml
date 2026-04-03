@@ -1,9 +1,10 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar & Dual Logic (Bugfix)"
+  name: "Nul op de Meter + Predictive Solar & Dual Logic (Final Fix)"
   description: >
     De ultieme batterij-manager. 
     1. Overleven: Laadt goedkoop tot Target SOC voor de nacht (inclusief solar check).
     2. Handelen: Laadt tot 100% voor winst, minus verwachte gratis zonnestroom.
+    (Inclusief iterable float fixes & strikte type-casting).
   domain: automation
 
   input:
@@ -106,8 +107,7 @@ variables:
   v_max_survival_price: !input max_survival_price
   v_trading_margin: !input trading_margin
   v_deadband: !input grid_deadband_w
-
-  # --- BUGFIX: De actuators worden hier nu netjes ingeladen als variabele ---
+  
   v_select_force: !input select_force_mode
   v_num_charge: !input number_charge_power
   v_num_discharge: !input number_discharge_power
@@ -131,28 +131,31 @@ action:
       
       # 1. Bepaal Dynamisch Target op basis van zon van morgen
       dynamic_target_soc: >-
-        {% if solar_tomorrow < v_low_solar %}{{ v_target_bad }}
-        {% elif solar_tomorrow > v_high_solar %}{{ v_target_good }}
-        {% else %}{{ v_target_norm }}{% endif %}
+        {% if solar_tomorrow < (v_low_solar | float(7)) %}
+          {{ v_target_bad }}
+        {% elif solar_tomorrow > (v_high_solar | float(20)) %}
+          {{ v_target_good }}
+        {% else %}
+          {{ v_target_norm }}
+        {% endif %}
 
-      target_kwh: "{{ (dynamic_target_soc | float / 100) * v_cap }}"
-      current_kwh: "{{ (soc / 100) * v_cap }}"
+      target_kwh: "{{ (dynamic_target_soc | float(0) / 100) * (v_cap | float(25)) }}"
+      current_kwh: "{{ (soc / 100) * (v_cap | float(25)) }}"
       
-      # Als de accu leeg raakt (<20%), vertrouw dan de zon-voorspelling niet meer
       effective_solar: "{{ 0 if soc < 20 else solar_left_today }}"
       
-      # Tekort voor Overleven (tot Target SOC)
-      net_charge_needed_kwh: "{{ (target_kwh - (current_kwh + effective_solar)) | max(0) }}"
-      
-      # Tekort voor Handel (tot 100% van de capaciteit, minus wat de zon nog gaat doen!)
-      trade_charge_needed_kwh: "{{ (v_cap - (current_kwh + effective_solar)) | max(0) }}"
+      # Tekort (in de lijst geplaatst zodat 'max' goed werkt!)
+      net_charge_needed_kwh: "{{ [(target_kwh | float(0) - (current_kwh | float(0) + effective_solar | float(0))), 0] | max }}"
+      trade_charge_needed_kwh: "{{ [(v_cap | float(25) - (current_kwh | float(0) + effective_solar | float(0))), 0] | max }}"
 
       # 2. Lees forecast prijzen uit
       price_analysis: >-
         {% set ns = namespace(p=[]) %}
         {% for i in range(1, 9) %}
           {% set s = states(v_prefix ~ i) %}
-          {% if s not in ['unknown','unavailable',''] %}{% set ns.p = ns.p + [s|float] %}{% endif %}
+          {% if s not in ['unknown','unavailable','none',''] %}
+            {% set ns.p = ns.p + [s | float(0)] %}
+          {% endif %}
         {% endfor %}
         {% set min_f = ns.p | min if ns.p else price %}
         {% set max_f = ns.p | max if ns.p else price %}
@@ -167,29 +170,28 @@ action:
       is_highest: "{{ price_analysis.split(',')[1] == 'true' }}"
       current_margin: "{{ price_analysis.split(',')[2] | float(0) }}"
 
-      # 3. BESLISBOMEN
+      # 3. BESLISBOMEN (Nu ook veilig met expliciete float checks)
       charge_for_survival: >-
-        {{ is_lowest and net_charge_needed_kwh > 0.5 and price <= v_max_survival_price }}
+        {{ is_lowest and (net_charge_needed_kwh | float(0)) > 0.5 and price <= (v_max_survival_price | float(0.25)) }}
         
       charge_for_trade: >-
-        {{ is_lowest and current_margin >= v_trading_margin and trade_charge_needed_kwh > 0.5 }}
+        {{ is_lowest and current_margin >= (v_trading_margin | float(0.10)) and (trade_charge_needed_kwh | float(0)) > 0.5 }}
 
       should_grid_charge: "{{ price_lvl == 'low' and (charge_for_survival or charge_for_trade) }}"
-      
-      should_sell: "{{ price_lvl == 'high' and is_highest and soc > dynamic_target_soc }}"
+      should_sell: "{{ price_lvl == 'high' and is_highest and soc > (dynamic_target_soc | float(0)) }}"
 
   - variables:
-      # Hier gebruiken we nu de ingeladen variabelen in plaats van de directe !input commando's
       cur_m: "{{ states(v_select_force) }}"
       cur_c: "{{ states(v_num_charge) | float(0) if cur_m == 'Solis RC Force Battery Charge' else 0 }}"
       cur_d: "{{ states(v_num_discharge) | float(0) if cur_m == 'Solis RC Force Battery Discharge' else 0 }}"
       real_demand: "{{ grid_w + cur_d - cur_c }}"
+      safe_deadband: "{{ v_deadband | float(300) }}"
 
       target_mode: >-
         {% if should_grid_charge %}{{ 'Charge' }}
         {% elif should_sell %}{{ 'Discharge' }}
-        {% elif real_demand > v_deadband and soc > 15 %}{{ 'Discharge' }}
-        {% elif real_demand < (0 - v_deadband) and soc < 100 %}{{ 'Charge' }}
+        {% elif real_demand > safe_deadband and soc > 15 %}{{ 'Discharge' }}
+        {% elif real_demand < (0 - safe_deadband) and soc < 100 %}{{ 'Charge' }}
         {% else %}{{ 'None' }}{% endif %}
 
       target_power: >-
