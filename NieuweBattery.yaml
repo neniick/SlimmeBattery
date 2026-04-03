@@ -1,8 +1,8 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar Target (25kWh)"
+  name: "Nul op de Meter + Ultimate Energy Management (25kWh)"
   description: >
-    Past het laaddoel (Target SOC) dynamisch aan op basis van de zonvoorspelling voor morgen.
-    Laadt meer bij uit het net als morgen somber is, en laat ruimte over als morgen zonnig is.
+    State-of-the-art controle. Inclusief Peak Shaving, ROI-marge check, Multi-Hour laden, 
+    Dynamische verkoopgrenzen en een Negatieve-Prijs override.
   domain: automation
 
   input:
@@ -19,6 +19,7 @@ blueprint:
       selector: { entity: { domain: sensor } }
     sensor_house_power:
       name: "Netverbruik (W)"
+      description: "Positief = Import, Negatief = Export"
       selector: { entity: { domain: sensor } }
     sensor_price_value:
       name: "Zonneplan Prijs (€/kWh)"
@@ -27,46 +28,80 @@ blueprint:
       name: "Zonneplan Prijsniveau (Status)"
       selector: { entity: { domain: sensor } }
     sensor_solar_remaining_today:
-      name: "Forecast.Solar - Resterende productie VANDAAG (kWh)"
+      name: "Forecast - Resterende productie VANDAAG (kWh)"
       selector: { entity: { domain: sensor } }
     sensor_solar_forecast_tomorrow:
-      name: "Forecast.Solar - Totale productie MORGEN (kWh)"
+      name: "Forecast - Totale productie MORGEN (kWh)"
       selector: { entity: { domain: sensor } }
 
-    # ---- Dynamische Target Instellingen ----
+    # ---- Batterij & Aansluiting ----
     battery_capacity_kwh:
       name: "Batterij Capaciteit (kWh)"
       default: 25
       selector: { number: { min: 2, max: 100, step: 0.5, unit_of_measurement: "kWh" } }
 
+    peak_shaving_max_w:
+      name: "Peak Shaving: Max. Netaansluiting (W)"
+      description: "De accu knijpt het laadvermogen af als je totale huisverbruik hier overheen dreigt te gaan."
+      default: 12000
+      selector: { number: { min: 1000, max: 25000, step: 500, unit_of_measurement: "W" } }
+
+    # ---- Handel & ROI (Return on Investment) ----
+    roi_margin_eur:
+      name: "Handel: Minimale Winstmarge (€)"
+      description: "Het verschil tussen de hoogste en laagste prijs vandaag moet groter zijn dan dit bedrag, anders blijft de accu in 'Nul op de Meter' modus om slijtage te voorkomen."
+      default: 0.08
+      selector: { number: { min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€" } }
+
+    # ---- Zonne-Drempels ----
     solar_threshold_low:
-      name: "Drempelwaarde: Slechte dag (kWh)"
-      description: "Als er morgen minder dan dit wordt opgewekt, laden we de accu extra vol."
+      name: "Drempel: Slechte dag (kWh)"
       default: 7
       selector: { number: { min: 0, max: 20, step: 1, unit_of_measurement: "kWh" } }
 
     solar_threshold_high:
-      name: "Drempelwaarde: Zonnige dag (kWh)"
-      description: "Als er morgen meer dan dit wordt opgewekt, laten we de accu leger voor de zon."
+      name: "Drempel: Zonnige dag (kWh)"
       default: 20
       selector: { number: { min: 10, max: 50, step: 1, unit_of_measurement: "kWh" } }
 
+    # ---- Target SOC's ----
     target_soc_bad_day:
-      name: "Target SOC bij Slechte dag (%)"
+      name: "Doel SOC: Slechte dag (%)"
       default: 95
       selector: { number: { min: 50, max: 100, step: 5 } }
 
     target_soc_normal_day:
-      name: "Target SOC bij Normale dag (%)"
-      default: 70
+      name: "Doel SOC: Normale dag (%)"
+      default: 75
       selector: { number: { min: 30, max: 90, step: 5 } }
 
     target_soc_good_day:
-      name: "Target SOC bij Zonnige dag (%)"
+      name: "Doel SOC: Zonnige dag (%)"
       default: 40
       selector: { number: { min: 20, max: 60, step: 5 } }
 
-    # ---- Actuators & Nul-op-de-meter ----
+    # ---- Vermogens ----
+    price_override_charge_power:
+      name: "Prijs: Laadvermogen (W)"
+      default: 4000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+
+    price_override_discharge_power:
+      name: "Prijs: Ontlaadvermogen (W)"
+      default: 4000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+
+    max_charge_power:
+      name: "Max laadvermogen Huisverbruik (W)"
+      default: 8000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+
+    max_discharge_power:
+      name: "Max ontlaadvermogen Huisverbruik (W)"
+      default: 6000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+
+    # ---- Actuators ----
     select_force_mode:
       name: "Solis Force Mode Selector"
       selector: { entity: { domain: select } }
@@ -90,12 +125,20 @@ variables:
   v_forecast_tomorrow: !input sensor_solar_forecast_tomorrow
   
   v_cap: !input battery_capacity_kwh
+  v_peak_w: !input peak_shaving_max_w
+  v_roi_margin: !input roi_margin_eur
+
   v_low_solar: !input solar_threshold_low
   v_high_solar: !input solar_threshold_high
   v_target_bad: !input target_soc_bad_day
   v_target_norm: !input target_soc_normal_day
   v_target_good: !input target_soc_good_day
   
+  v_price_charge_pwr: !input price_override_charge_power
+  v_price_discharge_pwr: !input price_override_discharge_power
+  v_max_charge: !input max_charge_power
+  v_max_discharge: !input max_discharge_power
+
   v_deadband: !input grid_deadband_w
   v_prefix: "sensor.zonneplan_forcast_tariff_"
 
@@ -111,74 +154,124 @@ action:
   - variables:
       soc: "{{ states(v_soc_ent) | float(0) }}"
       grid_w: "{{ states(v_house_pwr) | float(0) }}"
-      price: "{{ states(v_price_ent) | float(99) }}"
+      cp: "{{ states(v_price_ent) | float(99) }}"
       price_lvl: "{{ states(v_price_lvl_ent) | lower }}"
       solar_left_today: "{{ states(v_forecast_today) | float(0) }}"
       solar_tomorrow: "{{ states(v_forecast_tomorrow) | float(10) }}"
       
-      # --- DYNAMISCH TARGET SOC BEREKENEN ---
-      dynamic_target_soc: >-
+      is_negative: "{{ cp < 0 }}"
+      
+      # --- DYNAMISCH TARGET SOC & PREDICTIVE DISCHARGE ---
+      target_en_sell_grens: >-
         {% set th_low = v_low_solar | float(7) %}
         {% set th_high = v_high_solar | float(20) %}
-        {% if solar_tomorrow < th_low %}
-          {{ v_target_bad }}
+        {% if is_negative %}
+          100,100
+        {% elif solar_tomorrow < th_low %}
+          {{ v_target_bad }},70
         {% elif solar_tomorrow > th_high %}
-          {{ v_target_good }}
+          {{ v_target_good }},15
         {% else %}
-          {{ v_target_norm }}
+          {{ v_target_norm }},40
         {% endif %}
 
-      target_kwh: "{{ (dynamic_target_soc | float(0) / 100) * (v_cap | float(25)) }}"
+      dyn_target: "{{ target_en_sell_grens.split(',')[0] | float(75) }}"
+      dyn_sell_min: "{{ target_en_sell_grens.split(',')[1] | float(40) }}"
+
+      target_kwh: "{{ (dyn_target / 100) * (v_cap | float(25)) }}"
       current_kwh: "{{ (soc / 100) * (v_cap | float(25)) }}"
       
       # Tekort = Doel - (Huidig + Zon nog te gaan vandaag)
-      # FIX: Geplaatst in een lijst voor de 'max' functie
-      net_charge_needed_kwh: "{{ [(target_kwh | float(0) - (current_kwh | float(0) + solar_left_today)), 0] | max }}"
+      net_charge_needed_kwh: "{{ [(target_kwh - (current_kwh + solar_left_today)), 0] | max }}"
 
-      # Prijs analyse
+      # --- MULTI-HOUR LOGICA & ROI CHECK ---
       price_analysis: >-
-        {% set ns = namespace(p=[]) %}
+        {% set ns = namespace(p=[cp]) %}
         {% for i in range(1, 9) %}
           {% set s = states(v_prefix ~ i) %}
           {% if s not in ['unknown','unavailable',''] %}{% set ns.p = ns.p + [s|float] %}{% endif %}
         {% endfor %}
-        {% set min_f = ns.p | min if ns.p else price %}
-        {% set max_f = ns.p | max if ns.p else price %}
-        {{ 'true' if price <= min_f else 'false' }},{{ 'true' if price >= max_f else 'false' }}
+        {% set sorted_p = ns.p | sort %}
+        {% set min_f = sorted_p | first %}
+        {% set max_f = sorted_p | last %}
+        
+        {# Hoeveel uur hebben we nodig? (Beveiligd tegen delen door nul) #}
+        {% set chg_kw = [v_price_charge_pwr | float(4000), 100] | max / 1000 %}
+        {% set needed_hrs = (net_charge_needed_kwh / chg_kw) | round(0, 'ceil') | int %}
+        
+        {# Vind de drempelprijs voor het aantal benodigde uren #}
+        {% set max_idx = [needed_hrs - 1, 0] | max %}
+        {% set max_idx = [max_idx, (sorted_p | length) - 1] | min %}
+        {% set threshold_price = sorted_p[max_idx] %}
+        
+        {% set trade_ok = 'true' if (max_f - min_f) >= (v_roi_margin | float(0.08)) else 'false' %}
+        {% set is_cheap_enough = 'true' if cp <= threshold_price else 'false' %}
+        {% set is_highest = 'true' if cp >= max_f else 'false' %}
+        
+        {{ is_cheap_enough }},{{ is_highest }},{{ trade_ok }},{{ threshold_price }}
 
-      is_lowest: "{{ price_analysis.split(',')[0] == 'true' }}"
+      is_cheap_enough: "{{ price_analysis.split(',')[0] == 'true' }}"
       is_highest: "{{ price_analysis.split(',')[1] == 'true' }}"
+      trade_ok: "{{ price_analysis.split(',')[2] == 'true' }}"
+      threshold_price: "{{ price_analysis.split(',')[3] | float(99) }}"
 
-      should_grid_charge: "{{ price_lvl == 'low' and (net_charge_needed_kwh | float(0)) > 0.5 and is_lowest }}"
-      should_sell: "{{ price_lvl == 'high' and is_highest and soc > 40 }}"
+      # --- BESLISSINGSMATRIX ---
+      # Laad als negatief, OF als prijs=low én we zitten in top-X uren én trade is rendabel
+      should_grid_charge: >-
+        {{ is_negative or (price_lvl == 'low' and is_cheap_enough and trade_ok and net_charge_needed_kwh > 0.2) }}
+      
+      # Verkoop als prijs=high én we zitten op hoogste uur én trade is rendabel én SOC is hoog genoeg
+      should_sell: >-
+        {{ price_lvl == 'high' and is_highest and trade_ok and soc > dyn_sell_min and not is_negative }}
 
   - variables:
+      # Wat doet de inverter nu?
       cur_m: "{{ states(v_select_force) }}"
       cur_c: "{{ states(v_num_charge) | float(0) if cur_m == 'Solis RC Force Battery Charge' else 0 }}"
       cur_d: "{{ states(v_num_discharge) | float(0) if cur_m == 'Solis RC Force Battery Discharge' else 0 }}"
+      
+      # Werkelijke huisvraag (Zonder batterij). Positief = huis verbruikt. Negatief = zonnepanelen leveren overschot.
       real_demand: "{{ grid_w + cur_d - cur_c }}"
 
       target_mode: >-
         {% if should_grid_charge %}{{ 'Charge' }}
         {% elif should_sell %}{{ 'Discharge' }}
-        {% elif real_demand > v_deadband and soc > 15 %}{{ 'Discharge' }}
+        {% elif real_demand > v_deadband and soc > 10 %}{{ 'Discharge' }}
         {% elif real_demand < (0 - v_deadband) and soc < 100 %}{{ 'Charge' }}
         {% else %}{{ 'None' }}{% endif %}
 
       target_power: >-
-        {% if should_grid_charge or should_sell %}{{ 4000 }}
-        {% elif target_mode == 'Discharge' %}{{ [real_demand | abs | int, 6000] | min }}
-        {% elif target_mode == 'Charge' %}{{ [real_demand | abs | int, 8000] | min }}
-        {% else %}{{ 0 }}{% endif %}
+        {% set max_dis = v_max_discharge | float(6000) %}
+        {% set max_chg = v_max_charge | float(8000) %}
+        {% set p_chg = v_price_charge_pwr | float(4000) %}
+        {% set p_dis = v_price_discharge_pwr | float(4000) %}
+        {% set peak_w = v_peak_w | float(12000) %}
+        
+        {# Peak Shaving Logica: Maximale ruimte op het net #}
+        {# Als real_demand negatief is (zonne-export), hebben we JUIST meer ruimte om te laden! #}
+        {% set max_allowed_chg = [(peak_w - real_demand), 0] | max %}
+
+        {% if should_grid_charge %}
+          {{ [p_chg, max_allowed_chg] | min }}
+        {% elif should_sell %}
+          {{ p_dis }}
+        {% elif target_mode == 'Discharge' %}
+          {{ [real_demand | abs | int, max_dis] | min }}
+        {% elif target_mode == 'Charge' %}
+          {{ [real_demand | abs | int, max_chg, max_allowed_chg] | min }}
+        {% else %}
+          0
+        {% endif %}
 
   - service: system_log.write
     data:
       level: info
       message: >
-        [Nul-op-de-meter] Target={{ dynamic_target_soc }}% (Morgen={{ solar_tomorrow }}kWh), 
-        Tekort={{ net_charge_needed_kwh | round(2) }}kWh, Modus={{ target_mode }}
+        [Nul-op-de-meter] Mode={{ target_mode }}({{ target_power }}W), SOC={{ soc }}%(Doel:{{ dyn_target }}%), 
+        Tekort={{ net_charge_needed_kwh | round(2) }}kWh. ROI-OK={{ trade_ok }}, Negatief={{ is_negative }}.
+        PeakRoom={{ (v_peak_w | float(12000) - real_demand) | round(0) }}W.
 
-  # --- UITVOERING ---
+  # --- UITVOERING (Rock Solid Hardcoded Strings) ---
   - choose:
       - conditions: "{{ target_mode == 'Charge' }}"
         sequence:
