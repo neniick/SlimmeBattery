@@ -99,6 +99,11 @@ variables:
   v_deadband: !input grid_deadband_w
   v_prefix: "sensor.zonneplan_forcast_tariff_"
 
+  # FIX: Teruggezet om de templates werkend te maken!
+  v_select_force: !input select_force_mode
+  v_num_charge: !input number_charge_power
+  v_num_discharge: !input number_discharge_power
+
 trigger:
   - platform: time_pattern
     seconds: !input update_interval
@@ -146,9 +151,10 @@ action:
       should_sell: "{{ price_lvl == 'high' and is_highest and soc > 40 }}"
 
   - variables:
-      cur_m: "{{ states(!input select_force_mode) }}"
-      cur_c: "{{ states(!input number_charge_power) | float(0) if cur_m == 'Solis RC Force Battery Charge' else 0 }}"
-      cur_d: "{{ states(!input number_discharge_power) | float(0) if cur_m == 'Solis RC Force Battery Discharge' else 0 }}"
+      # FIX: Variables correct toegepast zonder raw !input
+      cur_m: "{{ states(v_select_force) }}"
+      cur_c: "{{ states(v_num_charge) | float(0) if cur_m == 'Solis RC Force Battery Charge' else 0 }}"
+      cur_d: "{{ states(v_num_discharge) | float(0) if cur_m == 'Solis RC Force Battery Discharge' else 0 }}"
       real_demand: "{{ grid_w + cur_d - cur_c }}"
 
       target_mode: >-
