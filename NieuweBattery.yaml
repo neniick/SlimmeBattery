@@ -1,9 +1,9 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar & Dual Logic (Zon-Slim Handelen)"
+  name: "Nul op de Meter + Predictive Solar & Dual Logic (Bugfix)"
   description: >
     De ultieme batterij-manager. 
     1. Overleven: Laadt goedkoop tot Target SOC voor de nacht (inclusief solar check).
-    2. Handelen: Laadt tot 100% voor winst, MAAR trekt de verwachte gratis zonnestroom er netjes vanaf!
+    2. Handelen: Laadt tot 100% voor winst, minus verwachte gratis zonnestroom.
   domain: automation
 
   input:
@@ -106,6 +106,12 @@ variables:
   v_max_survival_price: !input max_survival_price
   v_trading_margin: !input trading_margin
   v_deadband: !input grid_deadband_w
+
+  # --- BUGFIX: De actuators worden hier nu netjes ingeladen als variabele ---
+  v_select_force: !input select_force_mode
+  v_num_charge: !input number_charge_power
+  v_num_discharge: !input number_discharge_power
+
   v_prefix: "sensor.zonneplan_forcast_tariff_"
 
 trigger:
@@ -162,26 +168,21 @@ action:
       current_margin: "{{ price_analysis.split(',')[2] | float(0) }}"
 
       # 3. BESLISBOMEN
-      
-      # Hersenhelft 1: Overleven (Noodzaak)
       charge_for_survival: >-
         {{ is_lowest and net_charge_needed_kwh > 0.5 and price <= v_max_survival_price }}
         
-      # Hersenhelft 2: Handelen (Winst)
-      # Nu MET zonne-check: trade_charge_needed_kwh moet groter zijn dan 0.5!
       charge_for_trade: >-
         {{ is_lowest and current_margin >= v_trading_margin and trade_charge_needed_kwh > 0.5 }}
 
-      # Totaal laad-besluit
       should_grid_charge: "{{ price_lvl == 'low' and (charge_for_survival or charge_for_trade) }}"
       
-      # Verkoop-besluit (Verkoop nooit je overlevingsbuffer!)
       should_sell: "{{ price_lvl == 'high' and is_highest and soc > dynamic_target_soc }}"
 
   - variables:
-      cur_m: "{{ states(!input select_force_mode) }}"
-      cur_c: "{{ states(!input number_charge_power) | float(0) if cur_m == 'Solis RC Force Battery Charge' else 0 }}"
-      cur_d: "{{ states(!input number_discharge_power) | float(0) if cur_m == 'Solis RC Force Battery Discharge' else 0 }}"
+      # Hier gebruiken we nu de ingeladen variabelen in plaats van de directe !input commando's
+      cur_m: "{{ states(v_select_force) }}"
+      cur_c: "{{ states(v_num_charge) | float(0) if cur_m == 'Solis RC Force Battery Charge' else 0 }}"
+      cur_d: "{{ states(v_num_discharge) | float(0) if cur_m == 'Solis RC Force Battery Discharge' else 0 }}"
       real_demand: "{{ grid_w + cur_d - cur_c }}"
 
       target_mode: >-
