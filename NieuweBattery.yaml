@@ -1,9 +1,9 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar (Bulletproof Edition)"
+  name: "Nul op de Meter + Predictive Solar (Bulletproof + Damping)"
   description: >
     De ultieme, veiligste batterij-manager.
     Zwaar gecontroleerd op template-veiligheid, float/int casts en boolean traps.
-    Verhelpt oscillatie door fysiek batterijvermogen te gebruiken.
+    Verhelpt oscillatie door fysiek batterijvermogen én instelbare demping.
   domain: automation
 
   input:
@@ -13,6 +13,12 @@ blueprint:
       selector:
         select:
           options: [{label: "10s", value: "/10"}, {label: "20s", value: "/20"}, {label: "30s", value: "/30"}]
+
+    damping_factor:
+      name: "Dempingsfactor (Stabiliteit)"
+      description: "Hoe agressief moet de batterij corrigeren? 1.0 = 100% (snel, kans op jojo), 0.7 = 70% (rustiger en stabieler). Aanbevolen: 0.8"
+      default: 0.8
+      selector: { number: { min: 0.5, max: 1.0, step: 0.05, mode: slider } }
 
     # ---- Sensors ----
     sensor_soc:
@@ -141,6 +147,7 @@ variables:
   v_max_survival_price: !input max_survival_price
   v_trading_margin: !input trading_margin
   
+  v_damping: !input damping_factor
   v_deadband: !input grid_deadband_w
   v_max_charge: !input max_charge_power
   v_max_discharge: !input max_discharge_power
@@ -155,7 +162,7 @@ trigger:
 
 action:
   - variables:
-      # Data extraction met harde float(0) casts en fallbacks
+      # Data extraction met harde float(0) casts en fallbacks (99 voor prijs bij netwerkfout)
       soc: "{{ states(v_soc_ent) | float(0) }}"
       grid_w: "{{ states(v_house_pwr) | float(0) }}"
       
@@ -187,7 +194,7 @@ action:
       net_charge_needed_kwh: "{{ [(target_kwh - (current_kwh + effective_solar)), 0.0] | max }}"
       trade_charge_needed_kwh: "{{ [((v_cap | float(25)) - (current_kwh + effective_solar)), 0.0] | max }}"
 
-      # Prijslijst veilig opbouwen - GEBRUIK PIPE (|) IN PLAATS VAN KOMMA OM TUPLE BUG TE VOORKOMEN!
+      # Prijslijst veilig opbouwen
       price_analysis: >-
         {% set ns = namespace(p=[]) %}
         {% for i in range(1, 9) %}
@@ -237,9 +244,11 @@ action:
         {% elif should_sell_str == 'true' %}
           {{ v_max_discharge | int(6000) }}
         {% elif target_mode == 'Discharge' %}
-          {{ [real_demand | abs | int(0), (v_max_discharge | int(6000))] | min }}
+          {% set p = (real_demand * (v_damping | float(0.8))) | abs | int(0) %}
+          {{ [p, (v_max_discharge | int(6000))] | min }}
         {% elif target_mode == 'Charge' %}
-          {{ [real_demand | abs | int(0), (v_max_charge | int(8000))] | min }}
+          {% set p = (real_demand * (v_damping | float(0.8))) | abs | int(0) %}
+          {{ [p, (v_max_charge | int(8000))] | min }}
         {% else %}
           {{ 0 }}
         {% endif %}
