@@ -1,8 +1,8 @@
 blueprint:
-  name: "Nul op de Meter + Target SOC Sunset (25kWh Edition)"
+  name: "Nul op de Meter + Predictive Solar Target (25kWh)"
   description: >
-    Berekent het tekort aan energie om 75% SOC te halen bij zonsondergang, 
-    rekening houdend met de solar forecast, en vult dit aan tijdens de goedkoopste uren.
+    Past het laaddoel (Target SOC) dynamisch aan op basis van de zonvoorspelling voor morgen.
+    Laadt meer bij uit het net als morgen somber is, en laat ruimte over als morgen zonnig is.
   domain: automation
 
   input:
@@ -26,28 +26,47 @@ blueprint:
     sensor_price_level:
       name: "Zonneplan Prijsniveau (Status)"
       selector: { entity: { domain: sensor } }
-    sensor_solar_forecast_remaining:
-      name: "Forecast.Solar - Resterende productie vandaag (kWh)"
-      description: "Gebruik de 'remaining' sensor voor de beste nauwkeurigheid."
+    sensor_solar_remaining_today:
+      name: "Forecast.Solar - Resterende productie VANDAAG (kWh)"
+      selector: { entity: { domain: sensor } }
+    sensor_solar_forecast_tomorrow:
+      name: "Forecast.Solar - Totale productie MORGEN (kWh)"
       selector: { entity: { domain: sensor } }
 
-    # ---- Parameters ----
+    # ---- Dynamische Target Instellingen ----
     battery_capacity_kwh:
       name: "Batterij Capaciteit (kWh)"
       default: 25
       selector: { number: { min: 2, max: 100, step: 0.5, unit_of_measurement: "kWh" } }
 
-    target_soc_at_sunset:
-      name: "Doel SOC bij zonsondergang (%)"
-      default: 75
-      selector: { number: { min: 0, max: 100, step: 5, unit_of_measurement: "%" } }
+    solar_threshold_low:
+      name: "Drempelwaarde: Slechte dag (kWh)"
+      description: "Als er morgen minder dan dit wordt opgewekt, laden we de accu extra vol."
+      default: 7
+      selector: { number: { min: 0, max: 20, step: 1, unit_of_measurement: "kWh" } }
 
-    max_charge_price:
-      name: "Maximale prijs voor laden uit net (€)"
-      default: 0.25
-      selector: { number: { min: 0, max: 1, step: 0.01, unit_of_measurement: "€" } }
+    solar_threshold_high:
+      name: "Drempelwaarde: Zonnige dag (kWh)"
+      description: "Als er morgen meer dan dit wordt opgewekt, laten we de accu leger voor de zon."
+      default: 20
+      selector: { number: { min: 10, max: 50, step: 1, unit_of_measurement: "kWh" } }
 
-    # ---- Actuators ----
+    target_soc_bad_day:
+      name: "Target SOC bij Slechte dag (%)"
+      default: 95
+      selector: { number: { min: 50, max: 100, step: 5 } }
+
+    target_soc_normal_day:
+      name: "Target SOC bij Normale dag (%)"
+      default: 70
+      selector: { number: { min: 30, max: 90, step: 5 } }
+
+    target_soc_good_day:
+      name: "Target SOC bij Zonnige dag (%)"
+      default: 40
+      selector: { number: { min: 20, max: 60, step: 5 } }
+
+    # ---- Actuators & Nul-op-de-meter ----
     select_force_mode:
       name: "Solis Force Mode Selector"
       selector: { entity: { domain: select } }
@@ -57,28 +76,27 @@ blueprint:
     number_discharge_power:
       name: "Max Discharge Power Actuator"
       selector: { entity: { domain: number } }
-
-    # ---- Nul op de meter basis ----
     grid_deadband_w:
       name: "Deadband (W)"
       default: 300
       selector: { number: { min: 50, max: 1000, step: 50 } }
-    soc_hard_min:
-      name: "Harde SOC Ondergrens voor huisverbruik (%)"
-      default: 15
-      selector: { number: { min: 5, max: 30 } }
 
 variables:
   v_soc_ent: !input sensor_soc
   v_house_pwr: !input sensor_house_power
   v_price_ent: !input sensor_price_value
   v_price_lvl_ent: !input sensor_price_level
-  v_forecast_ent: !input sensor_solar_forecast_remaining
+  v_forecast_today: !input sensor_solar_remaining_today
+  v_forecast_tomorrow: !input sensor_solar_forecast_tomorrow
+  
   v_cap: !input battery_capacity_kwh
-  v_target_soc: !input target_soc_at_sunset
-  v_max_p: !input max_charge_price
+  v_low_solar: !input solar_threshold_low
+  v_high_solar: !input solar_threshold_high
+  v_target_bad: !input target_soc_bad_day
+  v_target_norm: !input target_soc_normal_day
+  v_target_good: !input target_soc_good_day
+  
   v_deadband: !input grid_deadband_w
-  v_soc_hard_min: !input soc_hard_min
   v_prefix: "sensor.zonneplan_forcast_tariff_"
 
 trigger:
@@ -91,18 +109,26 @@ action:
       grid_w: "{{ states(v_house_pwr) | float(0) }}"
       price: "{{ states(v_price_ent) | float(99) }}"
       price_lvl: "{{ states(v_price_lvl_ent) | lower }}"
-      solar_remaining: "{{ states(v_forecast_ent) | float(0) }}"
+      solar_left_today: "{{ states(v_forecast_today) | float(0) }}"
+      solar_tomorrow: "{{ states(v_forecast_tomorrow) | float(10) }}"
       
-      # Hoeveel kWh willen we minimaal in de accu hebben (75%)
-      target_kwh: "{{ (v_target_soc / 100) * v_cap }}"
-      # Hoeveel kWh zit er nu in?
+      # --- DYNAMISCH TARGET SOC BEREKENEN ---
+      dynamic_target_soc: >-
+        {% if solar_tomorrow < v_low_solar %}
+          {{ v_target_bad }}
+        {% elif solar_tomorrow > v_high_solar %}
+          {{ v_target_good }}
+        {% else %}
+          {{ v_target_norm }}
+        {% endif %}
+
+      target_kwh: "{{ (dynamic_target_soc | float / 100) * v_cap }}"
       current_kwh: "{{ (soc / 100) * v_cap }}"
       
-      # Het tekort dat we met het net MOETEN vullen
-      # Tekort = Doel - (Huidig + Wat er nog van de zon komt)
-      net_charge_needed_kwh: "{{ (target_kwh - (current_kwh + solar_remaining)) | max(0) }}"
+      # Tekort = Doel - (Huidig + Zon nog te gaan vandaag)
+      net_charge_needed_kwh: "{{ (target_kwh - (current_kwh + solar_left_today)) | max(0) }}"
 
-      # Forecast analyse (Check of dit het goedkoopste uur is)
+      # Prijs analyse
       price_analysis: >-
         {% set ns = namespace(p=[]) %}
         {% for i in range(1, 9) %}
@@ -116,12 +142,7 @@ action:
       is_lowest: "{{ price_analysis.split(',')[0] == 'true' }}"
       is_highest: "{{ price_analysis.split(',')[1] == 'true' }}"
 
-      # BESLISSING: Laden we nu uit het net?
-      # Condities: Prijs=low, Prijs < Cap, We hebben een tekort (> 0.5 kWh), en het is het goedkoopste uur.
-      should_grid_charge: >-
-        {{ price_lvl == 'low' and price <= v_max_p and net_charge_needed_kwh > 0.5 and is_lowest }}
-
-      # BESLISSING: Verkopen bij hoge prijs? (Alleen als we boven 40% zitten om huisverbruik te sparen)
+      should_grid_charge: "{{ price_lvl == 'low' and net_charge_needed_kwh > 0.5 and is_lowest }}"
       should_sell: "{{ price_lvl == 'high' and is_highest and soc > 40 }}"
 
   - variables:
@@ -133,18 +154,24 @@ action:
       target_mode: >-
         {% if should_grid_charge %}{{ 'Charge' }}
         {% elif should_sell %}{{ 'Discharge' }}
-        {% elif real_demand > v_deadband and soc > v_soc_hard_min %}{{ 'Discharge' }}
+        {% elif real_demand > v_deadband and soc > 15 %}{{ 'Discharge' }}
         {% elif real_demand < (0 - v_deadband) and soc < 100 %}{{ 'Charge' }}
         {% else %}{{ 'None' }}{% endif %}
 
       target_power: >-
-        {% if should_grid_charge %}{{ 4000 }}
-        {% elif should_sell %}{{ 4000 }}
+        {% if should_grid_charge or should_sell %}{{ 4000 }}
         {% elif target_mode == 'Discharge' %}{{ [real_demand | abs | int, 6000] | min }}
         {% elif target_mode == 'Charge' %}{{ [real_demand | abs | int, 8000] | min }}
         {% else %}{{ 0 }}{% endif %}
 
-  # UITVOERING
+  - service: system_log.write
+    data:
+      level: info
+      message: >
+        [Nul-op-de-meter] Target={{ dynamic_target_soc }}% (Morgen={{ solar_tomorrow }}kWh), 
+        Tekort={{ net_charge_needed_kwh | round(2) }}kWh, Modus={{ target_mode }}
+
+  # --- UITVOERING ---
   - choose:
       - conditions: "{{ target_mode == 'Charge' }}"
         sequence:
@@ -154,7 +181,6 @@ action:
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
             data: { option: "Solis RC Force Battery Charge" }
-      
       - conditions: "{{ target_mode == 'Discharge' }}"
         sequence:
           - service: number.set_value
@@ -163,7 +189,6 @@ action:
           - service: select.select_option
             target: { entity_id: !input select_force_mode }
             data: { option: "Solis RC Force Battery Discharge" }
-            
     default:
       - service: select.select_option
         target: { entity_id: !input select_force_mode }
