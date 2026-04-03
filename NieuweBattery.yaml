@@ -161,22 +161,22 @@ action:
       
       is_negative: "{{ cp < 0 }}"
       
-      # --- DYNAMISCH TARGET SOC & PREDICTIVE DISCHARGE ---
+      # --- DYNAMISCH TARGET SOC & PREDICTIVE DISCHARGE (Via JSON om tuples te voorkomen) ---
       target_en_sell_grens: >-
         {% set th_low = v_low_solar | float(7) %}
         {% set th_high = v_high_solar | float(20) %}
         {% if is_negative %}
-          100,100
+          {"t": 100, "s": 100}
         {% elif solar_tomorrow < th_low %}
-          {{ v_target_bad }},70
+          {"t": {{ v_target_bad }}, "s": 70}
         {% elif solar_tomorrow > th_high %}
-          {{ v_target_good }},15
+          {"t": {{ v_target_good }}, "s": 15}
         {% else %}
-          {{ v_target_norm }},40
+          {"t": {{ v_target_norm }}, "s": 40}
         {% endif %}
 
-      dyn_target: "{{ target_en_sell_grens.split(',')[0] | float(75) }}"
-      dyn_sell_min: "{{ target_en_sell_grens.split(',')[1] | float(40) }}"
+      dyn_target: "{{ (target_en_sell_grens | from_json).t | float(75) }}"
+      dyn_sell_min: "{{ (target_en_sell_grens | from_json).s | float(40) }}"
 
       target_kwh: "{{ (dyn_target / 100) * (v_cap | float(25)) }}"
       current_kwh: "{{ (soc / 100) * (v_cap | float(25)) }}"
@@ -184,7 +184,7 @@ action:
       # Tekort = Doel - (Huidig + Zon nog te gaan vandaag)
       net_charge_needed_kwh: "{{ [(target_kwh - (current_kwh + solar_left_today)), 0] | max }}"
 
-      # --- MULTI-HOUR LOGICA & ROI CHECK ---
+      # --- MULTI-HOUR LOGICA & ROI CHECK (Via JSON) ---
       price_analysis: >-
         {% set ns = namespace(p=[cp]) %}
         {% for i in range(1, 9) %}
@@ -204,16 +204,16 @@ action:
         {% set max_idx = [max_idx, (sorted_p | length) - 1] | min %}
         {% set threshold_price = sorted_p[max_idx] %}
         
-        {% set trade_ok = 'true' if (max_f - min_f) >= (v_roi_margin | float(0.08)) else 'false' %}
-        {% set is_cheap_enough = 'true' if cp <= threshold_price else 'false' %}
-        {% set is_highest = 'true' if cp >= max_f else 'false' %}
+        {% set trade_ok = (max_f - min_f) >= (v_roi_margin | float(0.08)) %}
+        {% set is_cheap_enough = cp <= threshold_price %}
+        {% set is_highest = cp >= max_f %}
         
-        {{ is_cheap_enough }},{{ is_highest }},{{ trade_ok }},{{ threshold_price }}
+        {"cheap": {{ 'true' if is_cheap_enough else 'false' }}, "high": {{ 'true' if is_highest else 'false' }}, "ok": {{ 'true' if trade_ok else 'false' }}, "thr": {{ threshold_price }} }
 
-      is_cheap_enough: "{{ price_analysis.split(',')[0] == 'true' }}"
-      is_highest: "{{ price_analysis.split(',')[1] == 'true' }}"
-      trade_ok: "{{ price_analysis.split(',')[2] == 'true' }}"
-      threshold_price: "{{ price_analysis.split(',')[3] | float(99) }}"
+      is_cheap_enough: "{{ (price_analysis | from_json).cheap }}"
+      is_highest: "{{ (price_analysis | from_json).high }}"
+      trade_ok: "{{ (price_analysis | from_json).ok }}"
+      threshold_price: "{{ (price_analysis | from_json).thr | float(99) }}"
 
       # --- BESLISSINGSMATRIX ---
       # Laad als negatief, OF als prijs=low én we zitten in top-X uren én trade is rendabel
@@ -248,7 +248,6 @@ action:
         {% set peak_w = v_peak_w | float(12000) %}
         
         {# Peak Shaving Logica: Maximale ruimte op het net #}
-        {# Als real_demand negatief is (zonne-export), hebben we JUIST meer ruimte om te laden! #}
         {% set max_allowed_chg = [(peak_w - real_demand), 0] | max %}
 
         {% if should_grid_charge %}
@@ -271,7 +270,7 @@ action:
         Tekort={{ net_charge_needed_kwh | round(2) }}kWh. ROI-OK={{ trade_ok }}, Negatief={{ is_negative }}.
         PeakRoom={{ (v_peak_w | float(12000) - real_demand) | round(0) }}W.
 
-  # --- UITVOERING (Rock Solid Hardcoded Strings) ---
+  # --- UITVOERING ---
   - choose:
       - conditions: "{{ target_mode == 'Charge' }}"
         sequence:
