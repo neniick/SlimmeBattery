@@ -155,7 +155,7 @@ trigger:
 
 action:
   - variables:
-      # Data extraction met harde float(0) casts en fallbacks (99 voor prijs bij netwerkfout)
+      # Data extraction met harde float(0) casts en fallbacks
       soc: "{{ states(v_soc_ent) | float(0) }}"
       grid_w: "{{ states(v_house_pwr) | float(0) }}"
       
@@ -187,7 +187,7 @@ action:
       net_charge_needed_kwh: "{{ [(target_kwh - (current_kwh + effective_solar)), 0.0] | max }}"
       trade_charge_needed_kwh: "{{ [((v_cap | float(25)) - (current_kwh + effective_solar)), 0.0] | max }}"
 
-      # Prijslijst veilig opbouwen
+      # Prijslijst veilig opbouwen - GEBRUIK PIPE (|) IN PLAATS VAN KOMMA OM TUPLE BUG TE VOORKOMEN!
       price_analysis: >-
         {% set ns = namespace(p=[]) %}
         {% for i in range(1, 9) %}
@@ -198,10 +198,10 @@ action:
         {% endfor %}
         {% set min_f = ns.p | min if ns.p else price %}
         {% set max_f = ns.p | max if ns.p else price %}
-        {{ min_f }},{{ max_f }}
+        {{ min_f ~ '|' ~ max_f }}
 
-      min_price: "{{ price_analysis.split(',')[0] | float(0) }}"
-      max_price: "{{ price_analysis.split(',')[1] | float(0) }}"
+      min_price: "{{ price_analysis.split('|')[0] | float(0) }}"
+      max_price: "{{ price_analysis.split('|')[1] | float(0) }}"
       
       # Booleans veilig opslaan als text "true" / "false"
       is_lowest_str: "{{ 'true' if price <= (min_price + 0.0001) else 'false' }}"
@@ -256,7 +256,6 @@ action:
   - choose:
       - conditions: "{{ target_mode == 'Charge' }}"
         sequence:
-          # Aangepast: Stuur altijd een harde Integer mee voor Solis stabiliteit!
           - service: number.set_value
             target: { entity_id: !input number_charge_power }
             data: { value: "{{ target_power | int(0) }}" }
