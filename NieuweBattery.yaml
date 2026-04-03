@@ -1,9 +1,8 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar (Bulletproof + Damping)"
+  name: "Nul op de Meter + Predictive Solar (Perfect Damping)"
   description: >
     De ultieme, veiligste batterij-manager.
-    Zwaar gecontroleerd op template-veiligheid, float/int casts en boolean traps.
-    Verhelpt oscillatie door fysiek batterijvermogen én instelbare demping.
+    Verhelpt oscillatie en steady-state errors door incrementeel (stapsgewijs) bij te sturen.
   domain: automation
 
   input:
@@ -16,7 +15,7 @@ blueprint:
 
     damping_factor:
       name: "Dempingsfactor (Stabiliteit)"
-      description: "Hoe agressief moet de batterij corrigeren? 1.0 = 100% (snel, kans op jojo), 0.7 = 70% (rustiger en stabieler). Aanbevolen: 0.8"
+      description: "Aanbevolen: 0.8. Zorgt ervoor dat de batterij stapsgewijs het P1-tekort aanvult."
       default: 0.8
       selector: { number: { min: 0.5, max: 1.0, step: 0.05, mode: slider } }
 
@@ -162,7 +161,6 @@ trigger:
 
 action:
   - variables:
-      # Data extraction met harde float(0) casts en fallbacks (99 voor prijs bij netwerkfout)
       soc: "{{ states(v_soc_ent) | float(0) }}"
       grid_w: "{{ states(v_house_pwr) | float(0) }}"
       
@@ -177,7 +175,6 @@ action:
       solar_left_today: "{{ (states(v_forecast_today) | float(0)) * 0.7 }}"
       solar_tomorrow: "{{ states(v_forecast_tomorrow) | float(10.0) }}"
       
-      # Target calculatie
       dynamic_target_soc: >-
         {% if solar_tomorrow < (v_low_solar | float(7)) %}
           {{ v_target_bad | float(95) }}
@@ -194,7 +191,6 @@ action:
       net_charge_needed_kwh: "{{ [(target_kwh - (current_kwh + effective_solar)), 0.0] | max }}"
       trade_charge_needed_kwh: "{{ [((v_cap | float(25)) - (current_kwh + effective_solar)), 0.0] | max }}"
 
-      # Prijslijst veilig opbouwen
       price_analysis: >-
         {% set ns = namespace(p=[]) %}
         {% for i in range(1, 9) %}
@@ -210,12 +206,10 @@ action:
       min_price: "{{ price_analysis.split('|')[0] | float(0) }}"
       max_price: "{{ price_analysis.split('|')[1] | float(0) }}"
       
-      # Booleans veilig opslaan als text "true" / "false"
       is_lowest_str: "{{ 'true' if price <= (min_price + 0.0001) else 'false' }}"
       is_highest_str: "{{ 'true' if price >= (max_price - 0.0001) else 'false' }}"
       current_margin: "{{ max_price - price }}"
 
-      # Condities evalueren met string vergelijking om Jinja boolean trap te voorkomen
       charge_for_survival_str: >-
         {{ 'true' if (is_lowest_str == 'true' and (net_charge_needed_kwh | float(0)) > 0.5 and price <= (v_max_survival_price | float(0.25))) else 'false' }}
         
@@ -243,24 +237,26 @@ action:
           {{ v_max_charge | int(8000) }}
         {% elif should_sell_str == 'true' %}
           {{ v_max_discharge | int(6000) }}
-        {% elif target_mode == 'Discharge' %}
-          {% set p = (real_demand * (v_damping | float(0.8))) | abs | int(0) %}
-          {{ [p, (v_max_discharge | int(6000))] | min }}
-        {% elif target_mode == 'Charge' %}
-          {% set p = (real_demand * (v_damping | float(0.8))) | abs | int(0) %}
-          {{ [p, (v_max_charge | int(8000))] | min }}
         {% else %}
-          {{ 0 }}
+          {# DE FIX: We tellen de gedempte fout (grid) op bij het huidige batterijvermogen! #}
+          {% set damped_target = batt_w + (grid_w * (v_damping | float(0.8))) %}
+          
+          {% if target_mode == 'Discharge' %}
+            {{ [damped_target | abs | int(0), (v_max_discharge | int(6000))] | min }}
+          {% elif target_mode == 'Charge' %}
+            {{ [damped_target | abs | int(0), (v_max_charge | int(8000))] | min }}
+          {% else %}
+            {{ 0 }}
+          {% endif %}
         {% endif %}
 
   - service: system_log.write
     data:
       level: info
       message: >
-        [Nul-op-de-meter] Demand={{ real_demand | round(0) }}W (G={{ grid_w }}W, B={{ batt_w }}W).
+        [Nul-op-de-meter] Demand={{ real_demand | round(0) }}W. Grid={{ grid_w }}W. 
         Target SOC={{ dynamic_target_soc }}%. Tekort Surv/Trade = {{ net_charge_needed_kwh | round(2) }}/{{ trade_charge_needed_kwh | round(2) }} kWh.
         Mode={{ target_mode }}, Power={{ target_power }}W. 
-        Flags: C_Surv={{ charge_for_survival_str }}, C_Trade={{ charge_for_trade_str }}, Sell={{ should_sell_str }}.
 
   - choose:
       - conditions: "{{ target_mode == 'Charge' }}"
