@@ -1,9 +1,9 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar (5-Brain Power Edition)"
+  name: "Nul op de Meter + Predictive Solar (5-Brain Power Edition) V2"
   description: >
     Keert terug naar perfecte 0-op-de-meter wiskunde.
-    Bevat 5 afzonderlijke vermogens-sliders om de 'Overlever' en 'Handelaar' 
-    exact te vertellen hoe agressief ze het stroomnet mogen belasten.
+    Bevat 5 afzonderlijke vermogens-sliders.
+    Fix voor de NoneType iterable crash!
   domain: automation
 
   input:
@@ -89,31 +89,26 @@ blueprint:
       
     max_house_charge_power:
       name: "1. Zon-Laden: Max vermogen (W)"
-      description: "Nul-op-de-meter: Hoe hard mag zonnestroom de accu in?"
       default: 8000
       selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
       
     max_house_discharge_power:
       name: "2. Huis-Leveren (Overlever): Max vermogen (W)"
-      description: "Nul-op-de-meter: Hoe hard mag de accu het huis voeden?"
       default: 6000
       selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
       
     max_survival_charge_power:
       name: "3. Overleven Net-Laden: Max vermogen (W)"
-      description: "Hoe hard mag de nachtbuffer gevuld worden vanuit het net? (Tip: Zet laag voor rust op de groep, bijv. 2500W)."
       default: 2500
       selector: { number: { min: 1000, max: 10000, step: 100, unit_of_measurement: "W" } }
 
     max_trade_charge_power:
       name: "4. Handel Net-Laden: Max vermogen (W)"
-      description: "Hoe hard mag de Handelaar inkopen bij bodemprijzen?"
       default: 4000
       selector: { number: { min: 1000, max: 10000, step: 100, unit_of_measurement: "W" } }
       
     max_trade_discharge_power:
       name: "5. Handel Net-Verkopen: Max vermogen (W)"
-      description: "Hoe hard mag de Handelaar dumpen op het stroomnet bij piekprijzen?"
       default: 4000
       selector: { number: { min: 1000, max: 10000, step: 100, unit_of_measurement: "W" } }
 
@@ -146,13 +141,11 @@ variables:
   v_trading_margin: !input trading_margin
   v_max_trade_soc: !input max_trade_soc
   v_deadband: !input grid_deadband_w
-  
   v_max_house_charge: !input max_house_charge_power
   v_max_house_discharge: !input max_house_discharge_power
   v_max_surv_charge: !input max_survival_charge_power
   v_max_trade_charge: !input max_trade_charge_power
   v_max_trade_discharge: !input max_trade_discharge_power
-  
   v_select_force: !input select_force_mode
   v_num_charge: !input number_charge_power
   v_num_discharge: !input number_discharge_power
@@ -242,7 +235,6 @@ action:
       is_highest: "{{ price >= (max_price | float(0.0) - 0.0001) }}"
       current_margin: "{{ (max_price | float(0.0)) - price }}"
 
-      # Evaluatie
       charge_for_survival: >-
         {{ is_lowest | bool(false) and (net_charge_needed_kwh | float(0.0)) > 0.5 and price <= (v_max_survival_price | float(0.25)) }}
         
@@ -255,16 +247,15 @@ action:
   - variables:
       safe_deadband: "{{ v_deadband | float(300.0) }}"
 
-      # Bepaal het exacte doelsysteem
+      # Let op: 'None' is hier vervangen door 'Idle' om de TypeError te voorkomen!
       target_mode: >-
         {% if price_lvl == 'low' and charge_for_trade | bool(false) %}TradeCharge
         {% elif price_lvl == 'low' and charge_for_survival | bool(false) %}SurvCharge
         {% elif should_sell | bool(false) %}TradeDischarge
         {% elif real_demand > safe_deadband and soc > 15 %}HouseDischarge
         {% elif real_demand < (0 - safe_deadband) and soc < 100 %}HouseCharge
-        {% else %}None{% endif %}
+        {% else %}Idle{% endif %}
 
-      # Koppel de juiste slider aan het doelsysteem
       target_power: >-
         {% if target_mode == 'TradeCharge' %}
           {{ v_max_trade_charge | int(4000) }}
@@ -280,11 +271,12 @@ action:
           0
         {% endif %}
 
-      # Vertaal het doelsysteem terug naar de hardware commando's voor Solis
+      # Veilig met | string cast en 'Idle' controle
       execution_mode: >-
-        {% if 'Charge' in target_mode %}Charge
-        {% elif 'Discharge' in target_mode %}Discharge
-        {% else %}None{% endif %}
+        {% set tm = target_mode | string %}
+        {% if 'Charge' in tm %}Charge
+        {% elif 'Discharge' in tm %}Discharge
+        {% else %}Idle{% endif %}
 
   - service: system_log.write
     data:
