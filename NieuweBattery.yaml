@@ -1,9 +1,9 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar (No-Sensor Edition)"
+  name: "Nul op de Meter + Predictive Solar (5-Brain Power Edition)"
   description: >
-    De ultieme slimme batterij-manager zonder de onstabiele fysieke batterijsensor.
-    Trader-logica weigert 's nachts te laden als er morgen genoeg zon is.
-    Volledig afgeschermd tegen Home Assistant template-crashes.
+    Keert terug naar perfecte 0-op-de-meter wiskunde.
+    Bevat 5 afzonderlijke vermogens-sliders om de 'Overlever' en 'Handelaar' 
+    exact te vertellen hoe agressief ze het stroomnet mogen belasten.
   domain: automation
 
   input:
@@ -81,26 +81,39 @@ blueprint:
       default: 95
       selector: { number: { min: 50, max: 100, step: 5, unit_of_measurement: "%" } }
 
-    # ---- Nul-op-de-meter & Net Limieten ----
+    # ---- DE 5 VERMOGENS-SLIDERS ----
     grid_deadband_w:
       name: "Deadband (W) - Nul op de meter"
-      description: "Batterij reageert pas als de P1 meter dit aantal Watt overschrijdt."
       default: 300
       selector: { number: { min: 50, max: 1000, step: 50 } }
-    max_charge_power:
-      name: "Zon-Laden: Max vermogen (W)"
+      
+    max_house_charge_power:
+      name: "1. Zon-Laden: Max vermogen (W)"
+      description: "Nul-op-de-meter: Hoe hard mag zonnestroom de accu in?"
       default: 8000
       selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
-    max_discharge_power:
-      name: "Huis-Leveren: Max vermogen (W)"
+      
+    max_house_discharge_power:
+      name: "2. Huis-Leveren (Overlever): Max vermogen (W)"
+      description: "Nul-op-de-meter: Hoe hard mag de accu het huis voeden?"
       default: 6000
       selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
-    max_grid_charge_power:
-      name: "Net-Laden: Max vermogen (W)"
-      default: 3000
+      
+    max_survival_charge_power:
+      name: "3. Overleven Net-Laden: Max vermogen (W)"
+      description: "Hoe hard mag de nachtbuffer gevuld worden vanuit het net? (Tip: Zet laag voor rust op de groep, bijv. 2500W)."
+      default: 2500
       selector: { number: { min: 1000, max: 10000, step: 100, unit_of_measurement: "W" } }
-    max_grid_discharge_power:
-      name: "Net-Verkopen: Max vermogen (W)"
+
+    max_trade_charge_power:
+      name: "4. Handel Net-Laden: Max vermogen (W)"
+      description: "Hoe hard mag de Handelaar inkopen bij bodemprijzen?"
+      default: 4000
+      selector: { number: { min: 1000, max: 10000, step: 100, unit_of_measurement: "W" } }
+      
+    max_trade_discharge_power:
+      name: "5. Handel Net-Verkopen: Max vermogen (W)"
+      description: "Hoe hard mag de Handelaar dumpen op het stroomnet bij piekprijzen?"
       default: 4000
       selector: { number: { min: 1000, max: 10000, step: 100, unit_of_measurement: "W" } }
 
@@ -133,10 +146,13 @@ variables:
   v_trading_margin: !input trading_margin
   v_max_trade_soc: !input max_trade_soc
   v_deadband: !input grid_deadband_w
-  v_max_charge: !input max_charge_power
-  v_max_discharge: !input max_discharge_power
-  v_max_grid_charge: !input max_grid_charge_power
-  v_max_grid_discharge: !input max_grid_discharge_power
+  
+  v_max_house_charge: !input max_house_charge_power
+  v_max_house_discharge: !input max_house_discharge_power
+  v_max_surv_charge: !input max_survival_charge_power
+  v_max_trade_charge: !input max_trade_charge_power
+  v_max_trade_discharge: !input max_trade_discharge_power
+  
   v_select_force: !input select_force_mode
   v_num_charge: !input number_charge_power
   v_num_discharge: !input number_discharge_power
@@ -150,45 +166,59 @@ action:
       soc: "{{ states(v_soc_ent) | float(0.0) }}"
       grid_w: "{{ states(v_house_pwr) | float(0.0) }}"
       
-      # Vraag op wat we zojuist als commando naar de omvormer hebben gestuurd
       cur_m: "{{ states(v_select_force) }}"
       cur_c: "{{ states(v_num_charge) | float(0.0) if cur_m == 'Solis RC Force Battery Charge' else 0.0 }}"
       cur_d: "{{ states(v_num_discharge) | float(0.0) if cur_m == 'Solis RC Force Battery Discharge' else 0.0 }}"
       
-      # Bereken het echte huisverbruik door P1 en ons eigen commando bij elkaar te voegen
       real_demand: "{{ grid_w + cur_d - cur_c }}"
 
       price: "{{ states(v_price_ent) | float(99.0) }}"
       price_lvl: "{{ states(v_price_lvl_ent) | lower }}"
       
-      solar_left_today: "{{ (states(v_forecast_today) | float(0.0)) * 0.7 }}"
-      solar_tomorrow: "{{ states(v_forecast_tomorrow) | float(10.0) }}"
-      
-      # Vanaf 15:00 rekenen we morgen mee als 'aankomende zonnestroom'
+      solar_today_rem: "{{ states(v_forecast_today) | float(0.0) }}"
+      solar_tomorrow_tot: "{{ states(v_forecast_tomorrow) | float(10.0) }}"
       current_hour: "{{ now().hour | int(0) }}"
-      upcoming_solar: "{{ solar_left_today + (solar_tomorrow if current_hour >= 15 or solar_left_today < 1.0 else 0.0) }}"
       
+      is_prepping_for_tomorrow: "{{ current_hour >= 12 }}"
+      forecast_delayed: "{{ current_hour < 5 and solar_today_rem < 0.1 }}"
+      
+      target_eval_solar: >-
+        {% if is_prepping_for_tomorrow | bool(false) or forecast_delayed | bool(false) %}
+          {{ solar_tomorrow_tot }}
+        {% else %}
+          {{ solar_today_rem }}
+        {% endif %}
+        
       dynamic_target_soc: >-
-        {% if solar_tomorrow < (v_low_solar | float(7.0)) %}
+        {% set s = target_eval_solar | float(10.0) %}
+        {% if s < (v_low_solar | float(7.0)) %}
           {{ v_target_bad | float(95.0) }}
-        {% elif solar_tomorrow > (v_high_solar | float(20.0)) %}
+        {% elif s > (v_high_solar | float(20.0)) %}
           {{ v_target_good | float(40.0) }}
         {% else %}
           {{ v_target_norm | float(70.0) }}
         {% endif %}
 
-      target_kwh: "{{ ((dynamic_target_soc | float(0.0)) / 100.0) * (v_cap | float(25.0)) }}"
+      target_kwh: "{{ (dynamic_target_soc | float(0.0) / 100.0) * (v_cap | float(25.0)) }}"
       trade_target_kwh: "{{ ((v_max_trade_soc | float(95.0)) / 100.0) * (v_cap | float(25.0)) }}"
       current_kwh: "{{ (soc / 100.0) * (v_cap | float(25.0)) }}"
       
-      # Survival gebruikt alleen vandaag (om vanavond te redden)
-      survival_solar: "{{ 0.0 if soc < 20 else solar_left_today }}"
-      net_charge_needed_kwh: "{{ [(target_kwh - (current_kwh + survival_solar)), 0.0] | max }}"
+      upcoming_solar_raw: >-
+        {% if is_prepping_for_tomorrow | bool(false) %}
+          {{ solar_today_rem + solar_tomorrow_tot }}
+        {% elif forecast_delayed | bool(false) %}
+          {{ solar_tomorrow_tot }}
+        {% else %}
+          {{ solar_today_rem }}
+        {% endif %}
+        
+      safe_solar: "{{ (upcoming_solar_raw | float(0.0)) * 0.7 }}"
+      effective_solar: "{{ 0.0 if soc < 20 else (safe_solar | float(0.0)) }}"
       
-      # Handel gebruikt óók morgen (om niet 's nachts te laden als morgen zonnig is)
-      trade_charge_needed_kwh: "{{ [(trade_target_kwh - (current_kwh + upcoming_solar)), 0.0] | max }}"
+      net_charge_needed_kwh: "{{ [(target_kwh | float(0.0) - (current_kwh | float(0.0) + effective_solar | float(0.0))), 0.0] | max }}"
+      trade_charge_needed_kwh: "{{ [(trade_target_kwh | float(0.0) - (current_kwh | float(0.0) + effective_solar | float(0.0))), 0.0] | max }}"
 
-      price_analysis: >-
+      min_price: >-
         {% set ns = namespace(p=[]) %}
         {% for i in range(1, 9) %}
           {% set s = states(v_prefix ~ i) %}
@@ -196,63 +226,76 @@ action:
             {% set ns.p = ns.p + [s | float(99.0)] %}
           {% endif %}
         {% endfor %}
-        {% set min_f = ns.p | min if ns.p else price %}
-        {% set max_f = ns.p | max if ns.p else price %}
-        {{ min_f ~ '|' ~ max_f }}
+        {{ ns.p | min if ns.p | length > 0 else price }}
 
-      min_price: "{{ price_analysis.split('|')[0] | float(0.0) }}"
-      max_price: "{{ price_analysis.split('|')[1] | float(0.0) }}"
+      max_price: >-
+        {% set ns = namespace(p=[]) %}
+        {% for i in range(1, 9) %}
+          {% set s = states(v_prefix ~ i) %}
+          {% if s not in ['unknown','unavailable','none',''] %}
+            {% set ns.p = ns.p + [s | float(99.0)] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.p | max if ns.p | length > 0 else price }}
       
-      is_lowest_str: "{{ 'true' if price <= (min_price + 0.0001) else 'false' }}"
-      is_highest_str: "{{ 'true' if price >= (max_price - 0.0001) else 'false' }}"
-      current_margin: "{{ max_price - price }}"
+      is_lowest: "{{ price <= (min_price | float(99.0) + 0.0001) }}"
+      is_highest: "{{ price >= (max_price | float(0.0) - 0.0001) }}"
+      current_margin: "{{ (max_price | float(0.0)) - price }}"
 
-      charge_for_survival_str: >-
-        {{ 'true' if (is_lowest_str == 'true' and (net_charge_needed_kwh | float(0.0)) > 0.5 and price <= (v_max_survival_price | float(0.25))) else 'false' }}
+      # Evaluatie
+      charge_for_survival: >-
+        {{ is_lowest | bool(false) and (net_charge_needed_kwh | float(0.0)) > 0.5 and price <= (v_max_survival_price | float(0.25)) }}
         
-      charge_for_trade_str: >-
-        {{ 'true' if (is_lowest_str == 'true' and current_margin >= (v_trading_margin | float(0.10)) and (trade_charge_needed_kwh | float(0.0)) > 0.5) else 'false' }}
+      charge_for_trade: >-
+        {{ is_lowest | bool(false) and (current_margin | float(0.0)) >= (v_trading_margin | float(0.10)) and (trade_charge_needed_kwh | float(0.0)) > 0.5 }}
 
-      should_grid_charge_str: >-
-        {{ 'true' if (price_lvl == 'low' and (charge_for_survival_str == 'true' or charge_for_trade_str == 'true')) else 'false' }}
-        
-      should_sell_str: >-
-        {{ 'true' if (price_lvl == 'high' and is_highest_str == 'true' and soc > (dynamic_target_soc | float(0.0))) else 'false' }}
+      should_sell: >-
+        {{ price_lvl == 'high' and is_highest | bool(false) and soc > (dynamic_target_soc | float(0.0)) }}
 
   - variables:
       safe_deadband: "{{ v_deadband | float(300.0) }}"
 
+      # Bepaal het exacte doelsysteem
       target_mode: >-
-        {% if should_grid_charge_str == 'true' %}{{ 'Charge' }}
-        {% elif should_sell_str == 'true' %}{{ 'Discharge' }}
-        {% elif real_demand > safe_deadband and soc > 15 %}{{ 'Discharge' }}
-        {% elif real_demand < (0 - safe_deadband) and soc < 100 %}{{ 'Charge' }}
-        {% else %}{{ 'None' }}{% endif %}
+        {% if price_lvl == 'low' and charge_for_trade | bool(false) %}TradeCharge
+        {% elif price_lvl == 'low' and charge_for_survival | bool(false) %}SurvCharge
+        {% elif should_sell | bool(false) %}TradeDischarge
+        {% elif real_demand > safe_deadband and soc > 15 %}HouseDischarge
+        {% elif real_demand < (0 - safe_deadband) and soc < 100 %}HouseCharge
+        {% else %}None{% endif %}
 
+      # Koppel de juiste slider aan het doelsysteem
       target_power: >-
-        {% if should_grid_charge_str == 'true' %}
-          {{ v_max_grid_charge | int(3000) }}
-        {% elif should_sell_str == 'true' %}
-          {{ v_max_grid_discharge | int(4000) }}
-        {% elif target_mode == 'Discharge' %}
-          {{ [real_demand | abs | int(0), (v_max_discharge | int(6000))] | min }}
-        {% elif target_mode == 'Charge' %}
-          {{ [real_demand | abs | int(0), (v_max_charge | int(8000))] | min }}
+        {% if target_mode == 'TradeCharge' %}
+          {{ v_max_trade_charge | int(4000) }}
+        {% elif target_mode == 'SurvCharge' %}
+          {{ v_max_surv_charge | int(2500) }}
+        {% elif target_mode == 'TradeDischarge' %}
+          {{ v_max_trade_discharge | int(4000) }}
+        {% elif target_mode == 'HouseDischarge' %}
+          {{ [real_demand | abs | int(0), (v_max_house_discharge | int(6000))] | min }}
+        {% elif target_mode == 'HouseCharge' %}
+          {{ [real_demand | abs | int(0), (v_max_house_charge | int(8000))] | min }}
         {% else %}
-          {{ 0 }}
+          0
         {% endif %}
+
+      # Vertaal het doelsysteem terug naar de hardware commando's voor Solis
+      execution_mode: >-
+        {% if 'Charge' in target_mode %}Charge
+        {% elif 'Discharge' in target_mode %}Discharge
+        {% else %}None{% endif %}
 
   - service: system_log.write
     data:
       level: info
       message: >
-        [Nul-op-de-meter] Demand={{ real_demand | round(0) }}W. Grid={{ grid_w }}W. 
-        Zon komend: {{ upcoming_solar | round(1) }}kWh. Target SOC={{ dynamic_target_soc }}%.
-        Tekort Surv={{ net_charge_needed_kwh | round(2) }}kWh, Handel={{ trade_charge_needed_kwh | round(2) }}kWh.
+        [Nul-op-de-meter] Demand={{ real_demand | round(0) }}W. Target SOC={{ dynamic_target_soc | round(0) }}%. 
+        Tekort: Surv={{ net_charge_needed_kwh | float(0.0) | round(2) }}kWh, Handel={{ trade_charge_needed_kwh | float(0.0) | round(2) }}kWh.
         Mode={{ target_mode }}, Power={{ target_power }}W.
 
   - choose:
-      - conditions: "{{ target_mode == 'Charge' }}"
+      - conditions: "{{ execution_mode == 'Charge' }}"
         sequence:
           - service: number.set_value
             target: { entity_id: !input number_charge_power }
@@ -261,7 +304,7 @@ action:
             target: { entity_id: !input select_force_mode }
             data: { option: "Solis RC Force Battery Charge" }
             
-      - conditions: "{{ target_mode == 'Discharge' }}"
+      - conditions: "{{ execution_mode == 'Discharge' }}"
         sequence:
           - service: number.set_value
             target: { entity_id: !input number_discharge_power }
