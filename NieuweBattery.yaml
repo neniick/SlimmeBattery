@@ -1,8 +1,8 @@
 blueprint:
-  name: "Nul op de Meter + Predictive Solar (Ultimate Zero Edition)"
+  name: "Nul op de Meter + Predictive Solar (No-Sensor Edition)"
   description: >
-    Keert terug naar perfecte 0-op-de-meter wiskunde.
-    Trader-logica is nu 'Zon-bewust' en weigert 's nachts te laden als er morgen genoeg zon is.
+    De ultieme slimme batterij-manager zonder de onstabiele fysieke batterijsensor.
+    Trader-logica weigert 's nachts te laden als er morgen genoeg zon is.
     Volledig afgeschermd tegen Home Assistant template-crashes.
   domain: automation
 
@@ -22,20 +22,6 @@ blueprint:
       name: "Netverbruik P1-Meter (W)"
       description: "Positief = afname/import, negatief = export."
       selector: { entity: { domain: sensor } }
-    sensor_battery_power:
-      name: "Actueel Batterijvermogen (W)"
-      description: "De sensor die live aangeeft wat de batterij fysiek doet."
-      selector: { entity: { domain: sensor } }
-    battery_power_polarity:
-      name: "Polariteit Batterijsensor"
-      default: "discharge"
-      selector:
-        select:
-          options:
-            - label: "Positief (+) = Ontladen (Standaard Solis)"
-              value: "discharge"
-            - label: "Positief (+) = Opladen"
-              value: "charge"
 
     # ---- Zonneplan & Forecast ----
     sensor_price_value:
@@ -132,8 +118,6 @@ blueprint:
 variables:
   v_soc_ent: !input sensor_soc
   v_house_pwr: !input sensor_house_power
-  v_batt_pwr: !input sensor_battery_power
-  v_batt_pol: !input battery_power_polarity
   v_price_ent: !input sensor_price_value
   v_price_lvl_ent: !input sensor_price_level
   v_prefix: !input forecast_sensor_prefix
@@ -165,11 +149,14 @@ action:
   - variables:
       soc: "{{ states(v_soc_ent) | float(0.0) }}"
       grid_w: "{{ states(v_house_pwr) | float(0.0) }}"
-      batt_w_raw: "{{ states(v_batt_pwr) | float(0.0) }}"
-      batt_w: "{{ batt_w_raw if v_batt_pol == 'discharge' else (batt_w_raw * -1.0) }}"
       
-      # Exacte huisverbruik, zonder afhankelijk te zijn van vertraagde commando's
-      real_demand: "{{ grid_w + batt_w }}"
+      # Vraag op wat we zojuist als commando naar de omvormer hebben gestuurd
+      cur_m: "{{ states(v_select_force) }}"
+      cur_c: "{{ states(v_num_charge) | float(0.0) if cur_m == 'Solis RC Force Battery Charge' else 0.0 }}"
+      cur_d: "{{ states(v_num_discharge) | float(0.0) if cur_m == 'Solis RC Force Battery Discharge' else 0.0 }}"
+      
+      # Bereken het echte huisverbruik door P1 en ons eigen commando bij elkaar te voegen
+      real_demand: "{{ grid_w + cur_d - cur_c }}"
 
       price: "{{ states(v_price_ent) | float(99.0) }}"
       price_lvl: "{{ states(v_price_lvl_ent) | lower }}"
@@ -259,7 +246,7 @@ action:
     data:
       level: info
       message: >
-        [Nul-op-de-meter] Demand={{ real_demand | round(0) }}W. Huidig Uur={{ current_hour }}.
+        [Nul-op-de-meter] Demand={{ real_demand | round(0) }}W. Grid={{ grid_w }}W. 
         Zon komend: {{ upcoming_solar | round(1) }}kWh. Target SOC={{ dynamic_target_soc }}%.
         Tekort Surv={{ net_charge_needed_kwh | round(2) }}kWh, Handel={{ trade_charge_needed_kwh | round(2) }}kWh.
         Mode={{ target_mode }}, Power={{ target_power }}W.
