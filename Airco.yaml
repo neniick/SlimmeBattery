@@ -196,7 +196,7 @@ trigger:
     attribute: current_temperature
   - platform: state
     entity_id: !input telefoons
-    to: 'not_home'
+    from: 'home'
     for:
       minutes: !input afwezigheid_minuten
   - platform: state
