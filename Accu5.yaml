@@ -1,10 +1,11 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Hardware Lock Editie)"
+  name: "Nul op de Meter - Vanaf Nul (Hardware Lock Fix)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
     - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (geeft de hardware rust).
     - Laadt NOOIT in de nacht. Zoekt het goedkoopste zonne-uur overdag!
     - Boterzachte demping voor een perfecte 0-meting zonder oscillatie.
+    - Fix: NoneType container/iterable bug verholpen met string casts.
   domain: automation
 
   input:
@@ -194,8 +195,8 @@ action:
       grid_w: "{{ states(v_grid) | float(0.0) }}"
       price: "{{ states(v_price) | float(99.0) }}"
       
-      # Huidig commando ophalen & Echt Huisverbruik
-      cur_mode: "{{ states(v_sel_mode) | string }}"
+      # Huidig commando ophalen & Echt Huisverbruik (Beveiligd met strings)
+      cur_mode: "{{ states(v_sel_mode) | default('Idle') | string }}"
       cur_c: "{{ states(v_num_c) | float(0.0) if cur_mode == 'Solis RC Force Battery Charge' else 0.0 }}"
       cur_d: "{{ states(v_num_d) | float(0.0) if cur_mode == 'Solis RC Force Battery Discharge' else 0.0 }}"
       real_demand: "{{ grid_w + cur_d - cur_c }}"
@@ -308,15 +309,19 @@ action:
           0
         {% endif %}
 
-      # ================= NIEUW: HARDWARE INTERLOCK (Beveiliging) =================
+      # ================= FIX: HARDWARE INTERLOCK ZONDER NONETYPE CRASH =================
+      # Zet alles eerst expliciet om naar een tekst-string met default waarde, voordat we 'in' gebruiken.
+      cm_string: "{{ cur_mode | default('Idle') | string }}"
+      tm_string: "{{ target_mode | default('Idle') | string }}"
+      
       cur_simple: >-
-        {% if 'Discharge' in cur_mode %}Discharge
-        {% elif 'Charge' in cur_mode %}Charge
+        {% if 'Discharge' in cm_string %}Discharge
+        {% elif 'Charge' in cm_string %}Charge
         {% else %}Idle{% endif %}
         
       tgt_simple: >-
-        {% if 'Discharge' in target_mode %}Discharge
-        {% elif 'Charge' in target_mode %}Charge
+        {% if 'Discharge' in tm_string %}Discharge
+        {% elif 'Charge' in tm_string %}Charge
         {% else %}Idle{% endif %}
 
       transition_lock: >-
@@ -330,9 +335,9 @@ action:
     data:
       level: info
       message: >
-        [Nul-op-de-meter V2] Demand={{ real_demand | round(0) }}W. Target SOC={{ active_target_soc | round(0) }}%.
-        Laagste prijs in vak=€{{ min_buy_price | round(3) }}, Huidig=€{{ price | round(3) }}.
-        Mode={{ target_mode }} (Power={{ target_power }}W).
+        [Nul-op-de-meter V2] Uur={{ hour }} (Window={{ in_charge_window }}). Target SOC={{ active_target_soc | round(0) }}%.
+        Laagste prijs in vak=€{{ min_buy_price | round(3) }}, Huidig=€{{ price | round(3) }}. Tekort={{ shortfall_kwh | round(2) }}kWh.
+        Mode={{ target_mode }}, Power={{ target_power }}W.
         Hardware Lock Active: {{ 'YES (Pauzeren...)' if transition_lock == 'true' else 'NO' }}.
 
   - choose:
