@@ -1,10 +1,10 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Daglicht & Damping Editie)"
+  name: "Nul op de Meter - Vanaf Nul (Hardware Lock Editie)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
+    - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (geeft de hardware rust).
     - Laadt NOOIT in de nacht. Zoekt het goedkoopste zonne-uur overdag!
     - Boterzachte demping voor een perfecte 0-meting zonder oscillatie.
-    - Alles instelbaar inclusief nieuwe update-frequenties (2s - 15s).
   domain: automation
 
   input:
@@ -297,12 +297,10 @@ action:
         {% elif target_mode == 'GridDischarge' %}
           {{ v_pwr_gd | int(4000) }}
         {% elif target_mode == 'HouseDischarge' %}
-          {# DEMPING BEREKENING (Met Clamping tegen sign flip) #}
           {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
           {% set pwr = [raw_new | round(0) | int(0), 0] | max %}
           {{ [pwr, (v_pwr_hd | int(6000))] | min }}
         {% elif target_mode == 'HouseCharge' %}
-          {# DEMPING BEREKENING VOOR LADEN (Met Clamping tegen sign flip) #}
           {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
           {% set pwr = [(raw_new * -1) | round(0) | int(0), 0] | max %}
           {{ [pwr, (v_pwr_hc | int(8000))] | min }}
@@ -310,19 +308,32 @@ action:
           0
         {% endif %}
 
-      exec_mode: >-
-        {% set tm = target_mode | string %}
-        {% if 'Charge' in tm %}Charge
-        {% elif 'Discharge' in tm %}Discharge
+      # ================= NIEUW: HARDWARE INTERLOCK (Beveiliging) =================
+      cur_simple: >-
+        {% if 'Discharge' in cur_mode %}Discharge
+        {% elif 'Charge' in cur_mode %}Charge
         {% else %}Idle{% endif %}
+        
+      tgt_simple: >-
+        {% if 'Discharge' in target_mode %}Discharge
+        {% elif 'Charge' in target_mode %}Charge
+        {% else %}Idle{% endif %}
+
+      transition_lock: >-
+        {{ 'true' if (cur_simple == 'Charge' and tgt_simple == 'Discharge') or (cur_simple == 'Discharge' and tgt_simple == 'Charge') else 'false' }}
+
+      exec_mode: >-
+        {% if transition_lock == 'true' %}Idle
+        {% else %}{{ tgt_simple }}{% endif %}
 
   - service: system_log.write
     data:
       level: info
       message: >
-        [Nul-op-de-meter V2] Uur={{ hour }} (Window={{ in_charge_window }}). Target SOC={{ active_target_soc | round(0) }}%.
-        Laagste prijs in vak=€{{ min_buy_price | round(3) }}, Huidig=€{{ price | round(3) }}. Tekort={{ shortfall_kwh | round(2) }}kWh.
-        Mode={{ target_mode }}, Power={{ target_power }}W.
+        [Nul-op-de-meter V2] Demand={{ real_demand | round(0) }}W. Target SOC={{ active_target_soc | round(0) }}%.
+        Laagste prijs in vak=€{{ min_buy_price | round(3) }}, Huidig=€{{ price | round(3) }}.
+        Mode={{ target_mode }} (Power={{ target_power }}W).
+        Hardware Lock Active: {{ 'YES (Pauzeren...)' if transition_lock == 'true' else 'NO' }}.
 
   - choose:
       - conditions: "{{ exec_mode == 'Charge' }}"
