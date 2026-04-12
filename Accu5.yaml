@@ -1,0 +1,336 @@
+blueprint:
+  name: "Nul op de Meter - Vanaf Nul (Daglicht Editie)"
+  description: >
+    Schone logica gebaseerd op keiharde regels.
+    - Laadt NOOIT in de nacht. Zoekt het goedkoopste zonne-uur overdag!
+    - Houdt de meter op nul.
+    - Garandeert X% SOC bij zonsondergang.
+    - Handelt (ontlaadt) bij volle accu en hoge prijs.
+    - Alles instelbaar.
+  domain: automation
+
+  input:
+    # ================= Snelheid =================
+    update_interval:
+      name: "Uitvoer-frequentie"
+      default: "/6"
+      selector:
+        select:
+          options:
+            - label: "Elke 5 seconden"
+              value: "/5"
+            - label: "Elke 6 seconden"
+              value: "/6"
+            - label: "Elke 10 seconden"
+              value: "/10"
+            - label: "Elke 12 seconden"
+              value: "/12"
+
+    # ================= TIJDVAK (NIEUW!) =================
+    time_charge_start:
+      name: "Tijdvak: Start Net-Laden (Uur)"
+      description: "Vanaf hoe laat mag de accu overdag stroom van het net inkopen? (Bijv: 10 = 10:00)"
+      default: 10
+      selector: { number: { min: 0, max: 23, step: 1 } }
+      
+    time_charge_end:
+      name: "Tijdvak: Eind Net-Laden (Uur)"
+      description: "Tot hoe laat mag de accu overdag stroom inkopen? (Bijv: 16 = 16:59)"
+      default: 16
+      selector: { number: { min: 0, max: 23, step: 1 } }
+
+    # ================= Sensoren =================
+    sensor_soc:
+      name: "Batterij SOC (%)"
+      selector: { entity: { domain: sensor } }
+    sensor_house_power:
+      name: "Netverbruik P1-Meter (W)"
+      selector: { entity: { domain: sensor } }
+    sensor_price_value:
+      name: "Zonneplan Huidige Prijs (€/kWh)"
+      selector: { entity: { domain: sensor } }
+    forecast_sensor_prefix:
+      name: "Zonneplan Forecast Prefix"
+      default: "sensor.zonneplan_forcast_tariff_"
+      selector: { text: {} }
+    price_lookahead_hours:
+      name: "Prijs: Hoeveel uur vooruit kijken?"
+      default: 12
+      selector: { number: { min: 1, max: 24, step: 1, unit_of_measurement: "uur" } }
+    sensor_solar_remaining_today:
+      name: "Forecast.Solar - Resterende productie VANDAAG (kWh)"
+      selector: { entity: { domain: sensor } }
+    sensor_solar_forecast_tomorrow:
+      name: "Forecast.Solar - Totale productie MORGEN (kWh)"
+      selector: { entity: { domain: sensor } }
+
+    # ================= Capaciteit & Drempels =================
+    battery_capacity_kwh:
+      name: "Batterij Capaciteit (kWh)"
+      default: 25
+      selector: { number: { min: 5, max: 100, step: 1, unit_of_measurement: "kWh" } }
+    threshold_good_solar:
+      name: "Drempel: Zonnige dag (kWh)"
+      default: 15
+      selector: { number: { min: 5, max: 50, step: 1, unit_of_measurement: "kWh" } }
+    threshold_bad_solar:
+      name: "Drempel: Slechte dag (kWh)"
+      default: 7
+      selector: { number: { min: 0, max: 20, step: 1, unit_of_measurement: "kWh" } }
+
+    # ================= Target SOC Regels =================
+    target_soc_base:
+      name: "Regel 1: Standaard Doel-SOC Zonsondergang (%)"
+      default: 50
+      selector: { number: { min: 0, max: 100, step: 5, unit_of_measurement: "%" } }
+    target_soc_prep:
+      name: "Regel 2: Doel-SOC bij slechte dag morgen (%)"
+      default: 80
+      selector: { number: { min: 0, max: 100, step: 5, unit_of_measurement: "%" } }
+
+    # ================= Handels Regels (Verkopen) =================
+    trade_trigger_soc:
+      name: "Regel 4: Minimum SOC om te mogen handelen (%)"
+      default: 90
+      selector: { number: { min: 50, max: 100, step: 5, unit_of_measurement: "%" } }
+    trade_bottom_soc:
+      name: "Regel 4: Ontlaad-bodem tijdens handelen (%)"
+      default: 50
+      selector: { number: { min: 0, max: 100, step: 5, unit_of_measurement: "%" } }
+
+    # ================= Prijzen & Vermogens =================
+    max_charge_price:
+      name: "Prijs: Maximale Inkoopprijs (€/kWh)"
+      default: 0.25
+      selector: { number: { min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€" } }
+    min_discharge_price:
+      name: "Prijs: Minimale Verkoopprijs (€/kWh)"
+      default: 0.35
+      selector: { number: { min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€" } }
+
+    grid_deadband_w:
+      name: "Deadband Nul-op-de-meter (W)"
+      default: 300
+      selector: { number: { min: 50, max: 1000, step: 50, unit_of_measurement: "W" } }
+      
+    power_house_charge:
+      name: "Vermogen: Zon -> Accu (W)"
+      default: 8000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+    power_house_discharge:
+      name: "Vermogen: Accu -> Huis (W)"
+      default: 6000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+    power_grid_charge:
+      name: "Vermogen: Net -> Accu (Kopen) (W)"
+      default: 4000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+    power_grid_discharge:
+      name: "Vermogen: Accu -> Net (Verkopen) (W)"
+      default: 4000
+      selector: { number: { min: 0, max: 10000, step: 100, unit_of_measurement: "W" } }
+
+    # ================= Actuators =================
+    select_force_mode:
+      name: "Solis Force Mode Selector"
+      selector: { entity: { domain: select } }
+    number_charge_power:
+      name: "Max Charge Power Actuator"
+      selector: { entity: { domain: number } }
+    number_discharge_power:
+      name: "Max Discharge Power Actuator"
+      selector: { entity: { domain: number } }
+
+variables:
+  v_soc: !input sensor_soc
+  v_grid: !input sensor_house_power
+  v_price: !input sensor_price_value
+  v_prefix: !input forecast_sensor_prefix
+  v_lookahead: !input price_lookahead_hours
+  v_solar_today: !input sensor_solar_remaining_today
+  v_solar_tomorrow: !input sensor_solar_forecast_tomorrow
+  
+  v_c_start: !input time_charge_start
+  v_c_end: !input time_charge_end
+  
+  v_cap: !input battery_capacity_kwh
+  v_good_solar: !input threshold_good_solar
+  v_bad_solar: !input threshold_bad_solar
+  
+  v_target_base: !input target_soc_base
+  v_target_prep: !input target_soc_prep
+  
+  v_trade_trigger: !input trade_trigger_soc
+  v_trade_bottom: !input trade_bottom_soc
+  
+  v_max_buy: !input max_charge_price
+  v_min_sell: !input min_discharge_price
+  
+  v_deadband: !input grid_deadband_w
+  v_pwr_hc: !input power_house_charge
+  v_pwr_hd: !input power_house_discharge
+  v_pwr_gc: !input power_grid_charge
+  v_pwr_gd: !input power_grid_discharge
+  
+  v_sel_mode: !input select_force_mode
+  v_num_c: !input number_charge_power
+  v_num_d: !input number_discharge_power
+
+trigger:
+  - platform: time_pattern
+    seconds: !input update_interval
+
+action:
+  - variables:
+      soc: "{{ states(v_soc) | float(0.0) }}"
+      grid_w: "{{ states(v_grid) | float(0.0) }}"
+      price: "{{ states(v_price) | float(99.0) }}"
+      
+      cur_mode: "{{ states(v_sel_mode) | string }}"
+      cur_c: "{{ states(v_num_c) | float(0.0) if cur_mode == 'Solis RC Force Battery Charge' else 0.0 }}"
+      cur_d: "{{ states(v_num_d) | float(0.0) if cur_mode == 'Solis RC Force Battery Discharge' else 0.0 }}"
+      real_demand: "{{ grid_w + cur_d - cur_c }}"
+
+      hour: "{{ now().hour | int(0) }}"
+      raw_today: "{{ states(v_solar_today) | float(0.0) }}"
+      raw_tomorrow: "{{ states(v_solar_tomorrow) | float(0.0) }}"
+      solar_today: "{{ raw_tomorrow if (hour < 5 and raw_today < 0.1) else raw_today }}"
+      solar_tomorrow: "{{ raw_tomorrow }}"
+
+      is_sunny_today: "{{ solar_today >= (v_good_solar | float(15.0)) }}"
+      is_bad_tomorrow: "{{ solar_tomorrow <= (v_bad_solar | float(7.0)) }}"
+      
+      active_target_soc: >-
+        {% if is_sunny_today | bool(false) and is_bad_tomorrow | bool(false) %}
+          {{ v_target_prep | float(80.0) }}
+        {% else %}
+          {{ v_target_base | float(50.0) }}
+        {% endif %}
+
+      current_kwh: "{{ (soc / 100.0) * (v_cap | float(25.0)) }}"
+      target_kwh: "{{ ((active_target_soc | float(50.0)) / 100.0) * (v_cap | float(25.0)) }}"
+      
+      safe_solar: "{{ solar_today * 0.8 }}"
+      shortfall_kwh: "{{ [(target_kwh - (current_kwh + safe_solar)), 0.0] | max }}"
+      needs_charge: "{{ (shortfall_kwh | float(0.0)) > 0.5 }}"
+
+      # ================= NIEUW: PRIJS ANALYSE MET TIJDVAK =================
+      c_start: "{{ v_c_start | int(10) }}"
+      c_end: "{{ v_c_end | int(16) }}"
+      in_charge_window: "{{ hour >= c_start and hour <= c_end }}"
+      lookahead: "{{ v_lookahead | int(12) }}"
+      
+      # 1. Zoek laagste inkoopprijs, maar ALLEEN binnen het dag-tijdvak
+      buy_price_stats: >-
+        {% set ns = namespace(p=[]) %}
+        {% if hour >= c_start and hour <= c_end %}
+          {% set ns.p = ns.p + [price] %}
+        {% endif %}
+        {% for i in range(1, lookahead + 1) %}
+          {% set future_hour = (hour + i) % 24 %}
+          {% if future_hour >= c_start and future_hour <= c_end %}
+            {% set s = states(v_prefix ~ i) %}
+            {% if s not in ['unknown','unavailable','none',''] %}
+              {% set ns.p = ns.p + [s | float(99.0)] %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.p | min if ns.p | length > 0 else 99.0 }}
+
+      min_buy_price: "{{ buy_price_stats | float(99.0) }}"
+      
+      # Hij is het "goedkoopste uur" als we IN het tijdvak zitten én de actuele prijs de laagste uit dat vak is.
+      is_cheapest_buy_hour: "{{ in_charge_window | bool(false) and price <= (min_buy_price + 0.0001) }}"
+
+      # 2. Zoek hoogste verkoopprijs (gewoon kijken in de hele lookahead periode)
+      sell_price_stats: >-
+        {% set ns = namespace(p=[price]) %}
+        {% for i in range(1, lookahead + 1) %}
+          {% set s = states(v_prefix ~ i) %}
+          {% if s not in ['unknown','unavailable','none',''] %}
+            {% set ns.p = ns.p + [s | float(99.0)] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.p | max }}
+        
+      max_sell_price: "{{ sell_price_stats | float(0.0) }}"
+      is_most_expensive_hour: "{{ price >= (max_sell_price - 0.0001) }}"
+
+      # ================= BESLISSINGEN =================
+      should_buy_grid: >-
+        {{ needs_charge | bool(false) 
+           and is_cheapest_buy_hour | bool(false) 
+           and price <= (v_max_buy | float(0.25)) }}
+
+      can_trade: >-
+        {{ soc >= (v_trade_trigger | float(90.0)) 
+           and solar_tomorrow >= (v_good_solar | float(15.0)) }}
+           
+      should_sell_grid: >-
+        {{ can_trade | bool(false) 
+           and is_most_expensive_hour | bool(false) 
+           and price >= (v_min_sell | float(0.35)) 
+           and soc > (v_trade_bottom | float(50.0)) }}
+
+  - variables:
+      safe_deadband: "{{ v_deadband | float(300.0) }}"
+      
+      target_mode: >-
+        {% if should_buy_grid | bool(false) %}GridCharge
+        {% elif should_sell_grid | bool(false) %}GridDischarge
+        {% elif real_demand > safe_deadband and soc > 10.0 %}HouseDischarge
+        {% elif real_demand < (0.0 - safe_deadband) and soc < 100.0 %}HouseCharge
+        {% else %}Idle{% endif %}
+
+      target_power: >-
+        {% if target_mode == 'GridCharge' %}
+          {{ v_pwr_gc | int(4000) }}
+        {% elif target_mode == 'GridDischarge' %}
+          {{ v_pwr_gd | int(4000) }}
+        {% elif target_mode == 'HouseDischarge' %}
+          {{ [real_demand | abs | int(0), (v_pwr_hd | int(6000))] | min }}
+        {% elif target_mode == 'HouseCharge' %}
+          {{ [real_demand | abs | int(0), (v_pwr_hc | int(8000))] | min }}
+        {% else %}
+          0
+        {% endif %}
+
+      exec_mode: >-
+        {% set tm = target_mode | string %}
+        {% if 'Charge' in tm %}Charge
+        {% elif 'Discharge' in tm %}Discharge
+        {% else %}Idle{% endif %}
+
+  - service: system_log.write
+    data:
+      level: info
+      message: >
+        [Nul-op-de-meter V2] Uur={{ hour }} (Window={{ in_charge_window }}). Target SOC={{ active_target_soc | round(0) }}%.
+        Laagste prijs in vak=€{{ min_buy_price | round(3) }}, Huidig=€{{ price | round(3) }}. Tekort={{ shortfall_kwh | round(2) }}kWh.
+        Mode={{ target_mode }}, Power={{ target_power }}W.
+
+  - choose:
+      - conditions: "{{ exec_mode == 'Charge' }}"
+        sequence:
+          - service: number.set_value
+            target: { entity_id: !input number_charge_power }
+            data: { value: "{{ target_power | int(0) }}" }
+          - service: select.select_option
+            target: { entity_id: !input select_force_mode }
+            data: { option: "Solis RC Force Battery Charge" }
+            
+      - conditions: "{{ exec_mode == 'Discharge' }}"
+        sequence:
+          - service: number.set_value
+            target: { entity_id: !input number_discharge_power }
+            data: { value: "{{ target_power | int(0) }}" }
+          - service: select.select_option
+            target: { entity_id: !input select_force_mode }
+            data: { option: "Solis RC Force Battery Discharge" }
+            
+    default:
+      - service: select.select_option
+        target: { entity_id: !input select_force_mode }
+        data: { option: "None" }
+
+mode: single
