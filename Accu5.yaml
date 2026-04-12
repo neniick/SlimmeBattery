@@ -1,32 +1,38 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Daglicht Editie)"
+  name: "Nul op de Meter - Vanaf Nul (Daglicht & Damping Editie)"
   description: >
-    Schone logica gebaseerd op keiharde regels.
+    Kogelvrije, wiskundig perfecte logica.
     - Laadt NOOIT in de nacht. Zoekt het goedkoopste zonne-uur overdag!
-    - Houdt de meter op nul.
-    - Garandeert X% SOC bij zonsondergang.
-    - Handelt (ontlaadt) bij volle accu en hoge prijs.
-    - Alles instelbaar.
+    - Boterzachte demping voor een perfecte 0-meting zonder oscillatie.
+    - Alles instelbaar inclusief nieuwe update-frequenties (2s - 15s).
   domain: automation
 
   input:
-    # ================= Snelheid =================
+    # ================= Snelheid & Demping =================
     update_interval:
       name: "Uitvoer-frequentie"
-      default: "/10"
+      default: "/5"
       selector:
         select:
           options:
-            - label: "Elke 2 seconden"
+            - label: "Elke 2 seconden (Zeer agressief)"
               value: "/2"
-            - label: "Elke 3 seconden"
+            - label: "Elke 3 seconden (Snel)"
               value: "/3"
             - label: "Elke 5 seconden"
               value: "/5"
-            - label: "Elke 10 seconden"
+            - label: "Elke 10 seconden (Stabiel - Aanbevolen)"
               value: "/10"
+            - label: "Elke 15 seconden (Rustig)"
+              value: "/15"
 
-    # ================= TIJDVAK (NIEUW!) =================
+    damping_factor:
+      name: "Dempingsfactor (Stabiliteit)"
+      description: "0.5 = Langzaam & vloeiend naar 0. 1.0 = Direct & agressief naar 0 (kans op jojo). Aanbevolen: 0.8"
+      default: 0.8
+      selector: { number: { min: 0.5, max: 1.0, step: 0.05, mode: slider } }
+
+    # ================= TIJDVAK =================
     time_charge_start:
       name: "Tijdvak: Start Net-Laden (Uur)"
       description: "Vanaf hoe laat mag de accu overdag stroom van het net inkopen? (Bijv: 10 = 10:00)"
@@ -150,6 +156,7 @@ variables:
   v_solar_today: !input sensor_solar_remaining_today
   v_solar_tomorrow: !input sensor_solar_forecast_tomorrow
   
+  v_damping: !input damping_factor
   v_c_start: !input time_charge_start
   v_c_end: !input time_charge_end
   
@@ -182,10 +189,12 @@ trigger:
 
 action:
   - variables:
+      # Data inladen
       soc: "{{ states(v_soc) | float(0.0) }}"
       grid_w: "{{ states(v_grid) | float(0.0) }}"
       price: "{{ states(v_price) | float(99.0) }}"
       
+      # Huidig commando ophalen & Echt Huisverbruik
       cur_mode: "{{ states(v_sel_mode) | string }}"
       cur_c: "{{ states(v_num_c) | float(0.0) if cur_mode == 'Solis RC Force Battery Charge' else 0.0 }}"
       cur_d: "{{ states(v_num_d) | float(0.0) if cur_mode == 'Solis RC Force Battery Discharge' else 0.0 }}"
@@ -214,21 +223,24 @@ action:
       shortfall_kwh: "{{ [(target_kwh - (current_kwh + safe_solar)), 0.0] | max }}"
       needs_charge: "{{ (shortfall_kwh | float(0.0)) > 0.5 }}"
 
-      # ================= NIEUW: PRIJS ANALYSE MET TIJDVAK =================
+      # Tijdvak Logica: Zoek LAAGSTE prijs BINNEN het opgegeven uurvak
       c_start: "{{ v_c_start | int(10) }}"
       c_end: "{{ v_c_end | int(16) }}"
       in_charge_window: "{{ hour >= c_start and hour <= c_end }}"
       lookahead: "{{ v_lookahead | int(12) }}"
       
-      # 1. Zoek laagste inkoopprijs, maar ALLEEN binnen het dag-tijdvak
-      buy_price_stats: >-
+      min_buy_price: >-
         {% set ns = namespace(p=[]) %}
-        {% if hour >= c_start and hour <= c_end %}
+        {% set h = now().hour | int(0) %}
+        {% set start = v_c_start | int(10) %}
+        {% set end = v_c_end | int(16) %}
+        {% if h >= start and h <= end %}
           {% set ns.p = ns.p + [price] %}
         {% endif %}
-        {% for i in range(1, lookahead + 1) %}
-          {% set future_hour = (hour + i) % 24 %}
-          {% if future_hour >= c_start and future_hour <= c_end %}
+        {% set l = v_lookahead | int(12) %}
+        {% for i in range(1, l + 1) %}
+          {% set future_hour = (h + i) % 24 %}
+          {% if future_hour >= start and future_hour <= end %}
             {% set s = states(v_prefix ~ i) %}
             {% if s not in ['unknown','unavailable','none',''] %}
               {% set ns.p = ns.p + [s | float(99.0)] %}
@@ -236,27 +248,24 @@ action:
           {% endif %}
         {% endfor %}
         {{ ns.p | min if ns.p | length > 0 else 99.0 }}
-
-      min_buy_price: "{{ buy_price_stats | float(99.0) }}"
       
-      # Hij is het "goedkoopste uur" als we IN het tijdvak zitten én de actuele prijs de laagste uit dat vak is.
-      is_cheapest_buy_hour: "{{ in_charge_window | bool(false) and price <= (min_buy_price + 0.0001) }}"
+      is_cheapest_buy_hour: "{{ in_charge_window | bool(false) and price <= ((min_buy_price | float(99.0)) + 0.0001) }}"
 
-      # 2. Zoek hoogste verkoopprijs (gewoon kijken in de hele lookahead periode)
-      sell_price_stats: >-
+      # Verkoop analyse (Over de volledige horizon)
+      max_sell_price: >-
         {% set ns = namespace(p=[price]) %}
-        {% for i in range(1, lookahead + 1) %}
+        {% set l = v_lookahead | int(12) %}
+        {% for i in range(1, l + 1) %}
           {% set s = states(v_prefix ~ i) %}
           {% if s not in ['unknown','unavailable','none',''] %}
-            {% set ns.p = ns.p + [s | float(99.0)] %}
+            {% set ns.p = ns.p + [s | float(0.0)] %}
           {% endif %}
         {% endfor %}
         {{ ns.p | max }}
         
-      max_sell_price: "{{ sell_price_stats | float(0.0) }}"
-      is_most_expensive_hour: "{{ price >= (max_sell_price - 0.0001) }}"
+      is_most_expensive_hour: "{{ price >= ((max_sell_price | float(0.0)) - 0.0001) }}"
 
-      # ================= BESLISSINGEN =================
+      # Beslissingen
       should_buy_grid: >-
         {{ needs_charge | bool(false) 
            and is_cheapest_buy_hour | bool(false) 
@@ -288,9 +297,15 @@ action:
         {% elif target_mode == 'GridDischarge' %}
           {{ v_pwr_gd | int(4000) }}
         {% elif target_mode == 'HouseDischarge' %}
-          {{ [real_demand | abs | int(0), (v_pwr_hd | int(6000))] | min }}
+          {# DEMPING BEREKENING (Met Clamping tegen sign flip) #}
+          {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
+          {% set pwr = [raw_new | round(0) | int(0), 0] | max %}
+          {{ [pwr, (v_pwr_hd | int(6000))] | min }}
         {% elif target_mode == 'HouseCharge' %}
-          {{ [real_demand | abs | int(0), (v_pwr_hc | int(8000))] | min }}
+          {# DEMPING BEREKENING VOOR LADEN (Met Clamping tegen sign flip) #}
+          {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
+          {% set pwr = [(raw_new * -1) | round(0) | int(0), 0] | max %}
+          {{ [pwr, (v_pwr_hc | int(8000))] | min }}
         {% else %}
           0
         {% endif %}
