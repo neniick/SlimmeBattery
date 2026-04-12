@@ -13,18 +13,18 @@ blueprint:
     # ================= Snelheid =================
     update_interval:
       name: "Uitvoer-frequentie"
-      default: "/6"
+      default: "/10"
       selector:
         select:
           options:
+            - label: "Elke 2 seconden"
+              value: "/2"
+            - label: "Elke 3 seconden"
+              value: "/3"
             - label: "Elke 5 seconden"
               value: "/5"
-            - label: "Elke 6 seconden"
-              value: "/6"
             - label: "Elke 10 seconden"
               value: "/10"
-            - label: "Elke 12 seconden"
-              value: "/12"
 
     # ================= TIJDVAK (NIEUW!) =================
     time_charge_start:
