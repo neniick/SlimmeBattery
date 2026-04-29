@@ -1,8 +1,9 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (NoneType Fix)"
+  name: "Nul op de Meter - Vanaf Nul (Hardware Lock Fix + Zero Power)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
     - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (Hardware Lock).
+    - BEVEILIGING: Zet bij de 'None' (Idle) status ook actief de vermogens naar 0W.
     - Fix: Native Typing 'None' crash volledig geëlimineerd.
     - Boterzachte demping voor een perfecte 0-meting.
   domain: automation
@@ -222,7 +223,7 @@ action:
       shortfall_kwh: "{{ [(target_kwh - (current_kwh + safe_solar)), 0.0] | max }}"
       needs_charge: "{{ (shortfall_kwh | float(0.0)) > 0.5 }}"
 
-      # Tijdvak Logica
+      # Tijdvak Logica: Zoek LAAGSTE prijs BINNEN het opgegeven uurvak
       c_start: "{{ v_c_start | int(10) }}"
       c_end: "{{ v_c_end | int(16) }}"
       in_charge_window: "{{ hour >= c_start and hour <= c_end }}"
@@ -250,7 +251,7 @@ action:
       
       is_cheapest_buy_hour: "{{ in_charge_window | bool(false) and price <= ((min_buy_price | float(99.0)) + 0.0001) }}"
 
-      # Verkoop analyse
+      # Verkoop analyse (Over de volledige horizon)
       max_sell_price: >-
         {% set ns = namespace(p=[price]) %}
         {% set l = v_lookahead | int(12) %}
@@ -357,6 +358,13 @@ action:
             data: { option: "Solis RC Force Battery Discharge" }
             
     default:
+      # ================= NIEUW: ZET DE VERMOGENS OP 0 WATT BIJ 'NONE' =================
+      - service: number.set_value
+        target: { entity_id: !input number_charge_power }
+        data: { value: 0 }
+      - service: number.set_value
+        target: { entity_id: !input number_discharge_power }
+        data: { value: 0 }
       - service: select.select_option
         target: { entity_id: !input select_force_mode }
         data: { option: "None" }
