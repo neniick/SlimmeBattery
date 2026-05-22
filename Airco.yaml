@@ -1,6 +1,6 @@
 blueprint:
-  name: "Slimme Airco Besturing (Per-Kamer UIT, Accu & Slimme Zomer/Winter Modus)"
-  description: "Voorkomt onnodig verwarmen in de ochtend en forceert koelen in de avond door naar de maximum dagtemperatuur te kijken."
+  name: "Slimme Airco Besturing (Hardware Limiet Fix)"
+  description: "Volledige controle met opties om airco's expliciet UIT te zetten, inclusief veilige limieten (18-30 graden)."
   domain: automation
   input:
     # --- AANWEZIGHEID & APPARATEN ---
@@ -17,7 +17,6 @@ blueprint:
       selector: { entity: { domain: sensor, device_class: temperature } }
     buiten_max_sensor:
       name: "Max. Temperatuur Vandaag (Vooruitkijken)"
-      description: "Bijv. de Buienradar maximum_temperature_1d sensor. Hiermee bepaalt de code of het een Zomerdag is."
       selector: { entity: { domain: sensor, device_class: temperature } }
 
     # --- INSTELLINGEN WOONKAMER ---
@@ -39,7 +38,7 @@ blueprint:
     wk_temp_home:
       name: "Woonkamer - Temp Thuis (Dag)"
       default: 21
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     wk_uit_weg:
       name: "[UIT] Woonkamer - Zet UIT tijdens Weg"
       default: false
@@ -47,7 +46,7 @@ blueprint:
     wk_temp_away:
       name: "Woonkamer - Temp Weg"
       default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     wk_uit_nacht:
       name: "[UIT] Woonkamer - Zet UIT in de Nacht"
       default: false
@@ -55,7 +54,7 @@ blueprint:
     wk_temp_night:
       name: "Woonkamer - Temp Nacht"
       default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- INSTELLINGEN KEUKEN ---
     airco_keuken:
@@ -76,7 +75,7 @@ blueprint:
     kk_temp_home:
       name: "Keuken - Temp Thuis (Dag)"
       default: 21
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     kk_uit_weg:
       name: "[UIT] Keuken - Zet UIT tijdens Weg"
       default: false
@@ -84,7 +83,7 @@ blueprint:
     kk_temp_away:
       name: "Keuken - Temp Weg"
       default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     kk_uit_nacht:
       name: "[UIT] Keuken - Zet UIT in de Nacht"
       default: false
@@ -92,7 +91,7 @@ blueprint:
     kk_temp_night:
       name: "Keuken - Temp Nacht"
       default: 18
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- INSTELLINGEN BOVEN ---
     airco_boven:
@@ -117,7 +116,7 @@ blueprint:
     bv_temp_home:
       name: "Boven - Temp Thuis (Dag)"
       default: 19
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     bv_uit_pre_bed:
       name: "[UIT] Boven - Zet UIT tijdens Pre-Bed"
       default: false
@@ -125,23 +124,23 @@ blueprint:
     bv_temp_pre_bed:
       name: "Boven - Temp Pre-Bed"
       default: 21
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     bv_uit_weg:
       name: "[UIT] Boven - Zet UIT tijdens Weg"
       default: false
       selector: { boolean: {} }
     bv_temp_away:
       name: "Boven - Temp Weg"
-      default: 16
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      default: 18
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
     bv_uit_nacht:
       name: "[UIT] Boven - Zet UIT in de Nacht"
       default: true
       selector: { boolean: {} }
     bv_temp_night:
       name: "Boven - Temp Nacht"
-      default: 16
-      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: °C } }
+      default: 18
+      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
     # --- THERMISCHE BATTERIJ ---
     accu_sensor:
@@ -288,7 +287,6 @@ action:
         {% set end = today_at(bv_t_nacht) %}
         {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
       
-      # --- NIEUWE LOGICA: SEIZOENS MODUS ---
       buiten_temp: "{{ states(buiten_sensor_var) | float(20) }}"
       buiten_max: "{{ states(buiten_max_sensor_var) | float(20) }}"
       
