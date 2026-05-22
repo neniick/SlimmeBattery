@@ -1,6 +1,6 @@
 blueprint:
-  name: "Slimme Airco Besturing (Per-Kamer UIT Schakelaars)"
-  description: "Volledige controle met opties om airco's expliciet UIT te zetten per tijdslot."
+  name: "Slimme Airco Besturing (Per-Kamer UIT, Accu & Slimme Zomer/Winter Modus)"
+  description: "Voorkomt onnodig verwarmen in de ochtend en forceert koelen in de avond door naar de maximum dagtemperatuur te kijken."
   domain: automation
   input:
     # --- AANWEZIGHEID & APPARATEN ---
@@ -12,8 +12,12 @@ blueprint:
       default: 15
       selector: { number: { min: 0, max: 60, step: 1, unit_of_measurement: min } }
     buiten_sensor:
-      name: "Buitentemperatuur Sensor"
+      name: "Actuele Buitentemperatuur Sensor"
       default: sensor.temperatuur
+      selector: { entity: { domain: sensor, device_class: temperature } }
+    buiten_max_sensor:
+      name: "Max. Temperatuur Vandaag (Vooruitkijken)"
+      description: "Bijv. de Buienradar maximum_temperature_1d sensor. Hiermee bepaalt de code of het een Zomerdag is."
       selector: { entity: { domain: sensor, device_class: temperature } }
 
     # --- INSTELLINGEN WOONKAMER ---
@@ -155,16 +159,16 @@ blueprint:
 
     # --- GLOBALE WEER & MARGE INSTELLINGEN ---
     buiten_temp_verwarmen:
-      name: "Verwarmen als het buiten kouder is dan:"
+      name: "Verwarmen als max/actueel kouder is dan:"
       default: 18
       selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
     buiten_temp_koelen:
-      name: "Koelen als het buiten warmer is dan:"
+      name: "Koelen als max/actueel warmer is dan:"
       default: 22
       selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
     marge_boven:
       name: "Marge Boven Doel"
-      default: 1.0
+      default: 5.0
       selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
     marge_onder:
       name: "Marge Onder Doel"
@@ -202,6 +206,8 @@ trigger:
   - platform: state
     entity_id: !input telefoons
     to: 'home'
+  - platform: state
+    entity_id: !input buiten_max_sensor
   - platform: numeric_state
     entity_id: !input accu_sensor
     above: !input accu_drempel
@@ -213,6 +219,7 @@ action:
   - variables:
       # Weer en Marges
       buiten_sensor_var: !input buiten_sensor
+      buiten_max_sensor_var: !input buiten_max_sensor
       omslag_koud: !input buiten_temp_verwarmen
       omslag_warm: !input buiten_temp_koelen
       telefoons_var: !input telefoons
@@ -281,18 +288,26 @@ action:
         {% set end = today_at(bv_t_nacht) %}
         {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
       
+      # --- NIEUWE LOGICA: SEIZOENS MODUS ---
       buiten_temp: "{{ states(buiten_sensor_var) | float(20) }}"
+      buiten_max: "{{ states(buiten_max_sensor_var) | float(20) }}"
+      
       gekozen_modus: >
-        {% if buiten_temp <= omslag_koud %} heat
-        {% elif buiten_temp >= omslag_warm %} cool
-        {% else %} off {% endif %}
+        {% if buiten_max >= omslag_warm %}
+          cool
+        {% elif buiten_max <= omslag_koud %}
+          heat
+        {% else %}
+          {% if buiten_temp <= omslag_koud %} heat
+          {% elif buiten_temp >= omslag_warm %} cool
+          {% else %} off {% endif %}
+        {% endif %}
 
       actuele_soc: "{{ states(accu_sensor_var) | float(0) }}"
       boost_wk: "{% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_wk %} {{ accu_boost_var }} {% else %} 0 {% endif %}"
       boost_kk: "{% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_kk %} {{ accu_boost_var }} {% else %} 0 {% endif %}"
       boost_bv: "{% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_bv %} {{ accu_boost_var }} {% else %} 0 {% endif %}"
         
-      # Doelen bepalen: Als 'UIT' is geselecteerd, geef dan de tekst 'off' door. Anders bereken doel incl. boost.
       doel_wk_basis: >
         {% if not iemand_thuis %} {{ 'off' if wk_u_a else wk_a }}
         {% elif not is_dag_wk %} {{ 'off' if wk_u_n else wk_n }}
@@ -324,13 +339,11 @@ action:
         {% elif gekozen_modus == 'cool' %} {{ doel_bv_basis | float(20) - boost_bv | float(0) }}
         {% else %} {{ doel_bv_basis | float(20) }} {% endif %}
 
-      # Actuele temperatuur (met fallback naar 20 graden als sensordata mist)
       huidig_wk: "{{ state_attr(airco_wk_var, 'current_temperature') | float(20) }}"
       huidig_kk: "{{ state_attr(airco_kk_var, 'current_temperature') | float(20) }}"
       huidig_bv: "{{ state_attr(airco_bv_var, 'current_temperature') | float(20) }}"
 
   - choose:
-      # --- ALLES UIT (DODE ZONE) ---
       - conditions:
           - condition: template
             value_template: "{{ gekozen_modus == 'off' }}"
@@ -345,9 +358,7 @@ action:
               hvac_mode: "off"
               
     default:
-      # --- BEOORDELING WOONKAMER ---
       - choose:
-          # Als doel is 'off', zet direct uit en negeer temperaturen.
           - conditions:
               - condition: template
                 value_template: "{{ doel_wk == 'off' }}"
@@ -357,7 +368,6 @@ action:
                   entity_id: !input airco_woonkamer
                 data:
                   hvac_mode: "off"
-          # Marge Uitschakelen
           - conditions:
               - condition: template
                 value_template: >
@@ -372,7 +382,6 @@ action:
                   entity_id: !input airco_woonkamer
                 data:
                   hvac_mode: "off"
-          # Inschakelen / Temperatuur sturen
           - conditions:
               - condition: template
                 value_template: >
@@ -389,7 +398,6 @@ action:
                   temperature: "{{ doel_wk }}"
                   hvac_mode: "{{ gekozen_modus }}"
 
-      # --- BEOORDELING KEUKEN ---
       - choose:
           - conditions:
               - condition: template
@@ -430,7 +438,6 @@ action:
                   temperature: "{{ doel_kk }}"
                   hvac_mode: "{{ gekozen_modus }}"
 
-      # --- BEOORDELING BOVEN ---
       - choose:
           - conditions:
               - condition: template
