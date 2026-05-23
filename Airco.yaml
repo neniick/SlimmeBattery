@@ -1,6 +1,6 @@
 blueprint:
-  name: "Slimme Airco Besturing (Hardware Limiet Fix)"
-  description: "Volledige controle met opties om airco's expliciet UIT te zetten, inclusief veilige limieten (18-30 graden)."
+  name: "Slimme Airco Besturing (Gesplitste Marges & Seizoensmodus)"
+  description: "Volledige controle met opties om airco's expliciet UIT te zetten, inclusief veilige limieten en gescheiden marges voor koelen en verwarmen."
   domain: automation
   input:
     # --- AANWEZIGHEID & APPARATEN ---
@@ -142,20 +142,6 @@ blueprint:
       default: 18
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
-    # --- THERMISCHE BATTERIJ ---
-    accu_sensor:
-      name: "Thuisaccu SOC Sensor (%)"
-      default: sensor.accu_omvormer_battery_soc
-      selector: { entity: { domain: sensor } }
-    accu_drempel:
-      name: "Accu Vol Drempel (%)"
-      default: 95
-      selector: { number: { min: 50, max: 100, step: 1, unit_of_measurement: "%" } }
-    accu_boost:
-      name: "Accu Boost (Graden)"
-      default: 1.0
-      selector: { number: { min: 0.0, max: 3.0, step: 0.5, unit_of_measurement: °C } }
-
     # --- GLOBALE WEER & MARGE INSTELLINGEN ---
     buiten_temp_verwarmen:
       name: "Verwarmen als max/actueel kouder is dan:"
@@ -165,12 +151,22 @@ blueprint:
       name: "Koelen als max/actueel warmer is dan:"
       default: 22
       selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
-    marge_boven:
-      name: "Marge Boven Doel"
+      
+    # --- NIEUWE GESPLITSTE MARGES ---
+    marge_boven_heat:
+      name: "Verwarmen: UITschakelen (Graden Boven Doel)"
       default: 5.0
       selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
-    marge_onder:
-      name: "Marge Onder Doel"
+    marge_onder_heat:
+      name: "Verwarmen: INschakelen (Graden Onder Doel)"
+      default: 1.0
+      selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
+    marge_boven_cool:
+      name: "Koelen: INschakelen (Graden Boven Doel)"
+      default: 1.0
+      selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
+    marge_onder_cool:
+      name: "Koelen: UITschakelen (Graden Onder Doel)"
       default: 1.0
       selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
 
@@ -207,26 +203,20 @@ trigger:
     to: 'home'
   - platform: state
     entity_id: !input buiten_max_sensor
-  - platform: numeric_state
-    entity_id: !input accu_sensor
-    above: !input accu_drempel
-  - platform: numeric_state
-    entity_id: !input accu_sensor
-    below: !input accu_drempel
 
 action:
   - variables:
-      # Weer en Marges
+      # Weer en Marges (Nieuwe set)
       buiten_sensor_var: !input buiten_sensor
       buiten_max_sensor_var: !input buiten_max_sensor
       omslag_koud: !input buiten_temp_verwarmen
       omslag_warm: !input buiten_temp_koelen
       telefoons_var: !input telefoons
-      accu_sensor_var: !input accu_sensor
-      accu_drempel_var: !input accu_drempel
-      accu_boost_var: !input accu_boost
-      marge_b: !input marge_boven
-      marge_o: !input marge_onder
+      
+      mh_b: !input marge_boven_heat
+      mh_o: !input marge_onder_heat
+      mc_b: !input marge_boven_cool
+      mc_o: !input marge_onder_cool
       
       # Woonkamer Inputs
       airco_wk_var: !input airco_woonkamer
@@ -301,41 +291,22 @@ action:
           {% else %} off {% endif %}
         {% endif %}
 
-      actuele_soc: "{{ states(accu_sensor_var) | float(0) }}"
-      boost_wk: "{% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_wk %} {{ accu_boost_var }} {% else %} 0 {% endif %}"
-      boost_kk: "{% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_kk %} {{ accu_boost_var }} {% else %} 0 {% endif %}"
-      boost_bv: "{% if actuele_soc >= accu_drempel_var and iemand_thuis and is_dag_bv %} {{ accu_boost_var }} {% else %} 0 {% endif %}"
-        
-      doel_wk_basis: >
+      # Directe toewijzing van de basisdoelen zonder boost-wiskunde
+      doel_wk: >
         {% if not iemand_thuis %} {{ 'off' if wk_u_a else wk_a }}
         {% elif not is_dag_wk %} {{ 'off' if wk_u_n else wk_n }}
         {% else %} {{ 'off' if wk_u_h else wk_h }} {% endif %}
-      doel_wk: >
-        {% if doel_wk_basis == 'off' %} off
-        {% elif gekozen_modus == 'heat' %} {{ doel_wk_basis | float(20) + boost_wk | float(0) }}
-        {% elif gekozen_modus == 'cool' %} {{ doel_wk_basis | float(20) - boost_wk | float(0) }}
-        {% else %} {{ doel_wk_basis | float(20) }} {% endif %}
         
-      doel_kk_basis: >
+      doel_kk: >
         {% if not iemand_thuis %} {{ 'off' if kk_u_a else kk_a }}
         {% elif not is_dag_kk %} {{ 'off' if kk_u_n else kk_n }}
         {% else %} {{ 'off' if kk_u_h else kk_h }} {% endif %}
-      doel_kk: >
-        {% if doel_kk_basis == 'off' %} off
-        {% elif gekozen_modus == 'heat' %} {{ doel_kk_basis | float(20) + boost_kk | float(0) }}
-        {% elif gekozen_modus == 'cool' %} {{ doel_kk_basis | float(20) - boost_kk | float(0) }}
-        {% else %} {{ doel_kk_basis | float(20) }} {% endif %}
         
-      doel_bv_basis: >
+      doel_bv: >
         {% if not iemand_thuis %} {{ 'off' if bv_u_a else bv_a }}
         {% elif is_pre_bed_bv %} {{ 'off' if bv_u_p else bv_p }}
         {% elif not is_dag_bv %} {{ 'off' if bv_u_n else bv_n }}
         {% else %} {{ 'off' if bv_u_h else bv_h }} {% endif %}
-      doel_bv: >
-        {% if doel_bv_basis == 'off' %} off
-        {% elif gekozen_modus == 'heat' %} {{ doel_bv_basis | float(20) + boost_bv | float(0) }}
-        {% elif gekozen_modus == 'cool' %} {{ doel_bv_basis | float(20) - boost_bv | float(0) }}
-        {% else %} {{ doel_bv_basis | float(20) }} {% endif %}
 
       huidig_wk: "{{ state_attr(airco_wk_var, 'current_temperature') | float(20) }}"
       huidig_kk: "{{ state_attr(airco_kk_var, 'current_temperature') | float(20) }}"
@@ -356,6 +327,7 @@ action:
               hvac_mode: "off"
               
     default:
+      # --- BEOORDELING WOONKAMER ---
       - choose:
           - conditions:
               - condition: template
@@ -366,13 +338,14 @@ action:
                   entity_id: !input airco_woonkamer
                 data:
                   hvac_mode: "off"
+          # Wanneer moet de airco UIT? (Temperatuur is bereikt incl. marge)
           - conditions:
               - condition: template
                 value_template: >
                   {% if gekozen_modus == 'heat' %}
-                    {{ huidig_wk >= (doel_wk | float(20) + marge_b | float(1)) }}
+                    {{ huidig_wk >= (doel_wk | float(20) + mh_b | float(1)) }}
                   {% else %}
-                    {{ huidig_wk <= (doel_wk | float(20) - marge_o | float(1)) }}
+                    {{ huidig_wk <= (doel_wk | float(20) - mc_o | float(1)) }}
                   {% endif %}
             sequence:
               - service: climate.set_hvac_mode
@@ -380,13 +353,14 @@ action:
                   entity_id: !input airco_woonkamer
                 data:
                   hvac_mode: "off"
+          # Wanneer moet de airco AAN? (Temperatuur zakt of stijgt buiten marge)
           - conditions:
               - condition: template
                 value_template: >
                   {% if gekozen_modus == 'heat' %}
-                    {{ huidig_wk <= (doel_wk | float(20) - marge_o | float(1)) }}
+                    {{ huidig_wk <= (doel_wk | float(20) - mh_o | float(1)) }}
                   {% else %}
-                    {{ huidig_wk >= (doel_wk | float(20) + marge_b | float(1)) }}
+                    {{ huidig_wk >= (doel_wk | float(20) + mc_b | float(1)) }}
                   {% endif %}
             sequence:
               - service: climate.set_temperature
@@ -396,6 +370,7 @@ action:
                   temperature: "{{ doel_wk }}"
                   hvac_mode: "{{ gekozen_modus }}"
 
+      # --- BEOORDELING KEUKEN ---
       - choose:
           - conditions:
               - condition: template
@@ -410,9 +385,9 @@ action:
               - condition: template
                 value_template: >
                   {% if gekozen_modus == 'heat' %}
-                    {{ huidig_kk >= (doel_kk | float(20) + marge_b | float(1)) }}
+                    {{ huidig_kk >= (doel_kk | float(20) + mh_b | float(1)) }}
                   {% else %}
-                    {{ huidig_kk <= (doel_kk | float(20) - marge_o | float(1)) }}
+                    {{ huidig_kk <= (doel_kk | float(20) - mc_o | float(1)) }}
                   {% endif %}
             sequence:
               - service: climate.set_hvac_mode
@@ -424,9 +399,9 @@ action:
               - condition: template
                 value_template: >
                   {% if gekozen_modus == 'heat' %}
-                    {{ huidig_kk <= (doel_kk | float(20) - marge_o | float(1)) }}
+                    {{ huidig_kk <= (doel_kk | float(20) - mh_o | float(1)) }}
                   {% else %}
-                    {{ huidig_kk >= (doel_kk | float(20) + marge_b | float(1)) }}
+                    {{ huidig_kk >= (doel_kk | float(20) + mc_b | float(1)) }}
                   {% endif %}
             sequence:
               - service: climate.set_temperature
@@ -436,6 +411,7 @@ action:
                   temperature: "{{ doel_kk }}"
                   hvac_mode: "{{ gekozen_modus }}"
 
+      # --- BEOORDELING BOVEN ---
       - choose:
           - conditions:
               - condition: template
@@ -450,9 +426,9 @@ action:
               - condition: template
                 value_template: >
                   {% if gekozen_modus == 'heat' %}
-                    {{ huidig_bv >= (doel_bv | float(20) + marge_b | float(1)) }}
+                    {{ huidig_bv >= (doel_bv | float(20) + mh_b | float(1)) }}
                   {% else %}
-                    {{ huidig_bv <= (doel_bv | float(20) - marge_o | float(1)) }}
+                    {{ huidig_bv <= (doel_bv | float(20) - mc_o | float(1)) }}
                   {% endif %}
             sequence:
               - service: climate.set_hvac_mode
@@ -464,9 +440,9 @@ action:
               - condition: template
                 value_template: >
                   {% if gekozen_modus == 'heat' %}
-                    {{ huidig_bv <= (doel_bv | float(20) - marge_o | float(1)) }}
+                    {{ huidig_bv <= (doel_bv | float(20) - mh_o | float(1)) }}
                   {% else %}
-                    {{ huidig_bv >= (doel_bv | float(20) + marge_b | float(1)) }}
+                    {{ huidig_bv >= (doel_bv | float(20) + mc_b | float(1)) }}
                   {% endif %}
             sequence:
               - service: climate.set_temperature
