@@ -1,6 +1,6 @@
 blueprint:
-  name: "Slimme Airco Besturing (Dubbele Doeltemperatuur)"
-  description: "Aparte temperaturen voor Verwarmen en Koelen per tijdslot, inclusief [UIT] schakelaars en gesplitste marges."
+  name: "Slimme Airco Besturing (Dynamische Hardware Limieten)"
+  description: "Volledige controle met dubbele doeltemperaturen, gescheiden marges en veilige limieten (Verwarmen vanaf 16°C, Koelen vanaf 18°C)."
   domain: automation
   input:
     # --- AANWEZIGHEID & APPARATEN ---
@@ -31,40 +31,55 @@ blueprint:
       name: "Woonkamer - Start Nacht"
       default: "23:00:00"
       selector: { time: {} }
-    wk_uit_thuis:
-      name: "[UIT] Woonkamer - Zet UIT tijdens Dag (Thuis)"
+      
+    wk_uit_thuis_heat:
+      name: "[UIT] Woonkamer - Verwarmen UIT (Thuis)"
       default: false
       selector: { boolean: {} }
     wk_temp_home_heat:
-      name: "Woonkamer - Verwarmen (Thuis)"
+      name: "Woonkamer - Verwarmen Temp (Thuis)"
       default: 21
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    wk_uit_thuis_cool:
+      name: "[UIT] Woonkamer - Koelen UIT (Thuis)"
+      default: false
+      selector: { boolean: {} }
     wk_temp_home_cool:
-      name: "Woonkamer - Koelen (Thuis)"
+      name: "Woonkamer - Koelen Temp (Thuis)"
       default: 23
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_uit_weg:
-      name: "[UIT] Woonkamer - Zet UIT tijdens Weg"
+      
+    wk_uit_weg_heat:
+      name: "[UIT] Woonkamer - Verwarmen UIT (Weg)"
       default: false
       selector: { boolean: {} }
     wk_temp_away_heat:
-      name: "Woonkamer - Verwarmen (Weg)"
+      name: "Woonkamer - Verwarmen Temp (Weg)"
       default: 18
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    wk_uit_weg_cool:
+      name: "[UIT] Woonkamer - Koelen UIT (Weg)"
+      default: false
+      selector: { boolean: {} }
     wk_temp_away_cool:
-      name: "Woonkamer - Koelen (Weg)"
+      name: "Woonkamer - Koelen Temp (Weg)"
       default: 26
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_uit_nacht:
-      name: "[UIT] Woonkamer - Zet UIT in de Nacht"
+      
+    wk_uit_nacht_heat:
+      name: "[UIT] Woonkamer - Verwarmen UIT (Nacht)"
       default: false
       selector: { boolean: {} }
     wk_temp_night_heat:
-      name: "Woonkamer - Verwarmen (Nacht)"
+      name: "Woonkamer - Verwarmen Temp (Nacht)"
       default: 18
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    wk_uit_nacht_cool:
+      name: "[UIT] Woonkamer - Koelen UIT (Nacht)"
+      default: false
+      selector: { boolean: {} }
     wk_temp_night_cool:
-      name: "Woonkamer - Koelen (Nacht)"
+      name: "Woonkamer - Koelen Temp (Nacht)"
       default: 25
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
@@ -80,40 +95,55 @@ blueprint:
       name: "Keuken - Start Nacht"
       default: "23:00:00"
       selector: { time: {} }
-    kk_uit_thuis:
-      name: "[UIT] Keuken - Zet UIT tijdens Dag (Thuis)"
+      
+    kk_uit_thuis_heat:
+      name: "[UIT] Keuken - Verwarmen UIT (Thuis)"
       default: false
       selector: { boolean: {} }
     kk_temp_home_heat:
-      name: "Keuken - Verwarmen (Thuis)"
+      name: "Keuken - Verwarmen Temp (Thuis)"
       default: 21
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    kk_uit_thuis_cool:
+      name: "[UIT] Keuken - Koelen UIT (Thuis)"
+      default: false
+      selector: { boolean: {} }
     kk_temp_home_cool:
-      name: "Keuken - Koelen (Thuis)"
+      name: "Keuken - Koelen Temp (Thuis)"
       default: 23
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_uit_weg:
-      name: "[UIT] Keuken - Zet UIT tijdens Weg"
+      
+    kk_uit_weg_heat:
+      name: "[UIT] Keuken - Verwarmen UIT (Weg)"
       default: false
       selector: { boolean: {} }
     kk_temp_away_heat:
-      name: "Keuken - Verwarmen (Weg)"
+      name: "Keuken - Verwarmen Temp (Weg)"
       default: 18
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    kk_uit_weg_cool:
+      name: "[UIT] Keuken - Koelen UIT (Weg)"
+      default: false
+      selector: { boolean: {} }
     kk_temp_away_cool:
-      name: "Keuken - Koelen (Weg)"
+      name: "Keuken - Koelen Temp (Weg)"
       default: 26
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_uit_nacht:
-      name: "[UIT] Keuken - Zet UIT in de Nacht"
+      
+    kk_uit_nacht_heat:
+      name: "[UIT] Keuken - Verwarmen UIT (Nacht)"
       default: false
       selector: { boolean: {} }
     kk_temp_night_heat:
-      name: "Keuken - Verwarmen (Nacht)"
+      name: "Keuken - Verwarmen Temp (Nacht)"
       default: 18
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    kk_uit_nacht_cool:
+      name: "[UIT] Keuken - Koelen UIT (Nacht)"
+      default: false
+      selector: { boolean: {} }
     kk_temp_night_cool:
-      name: "Keuken - Koelen (Nacht)"
+      name: "Keuken - Koelen Temp (Nacht)"
       default: 25
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
@@ -133,52 +163,72 @@ blueprint:
       name: "Boven - Start Nacht"
       default: "23:00:00"
       selector: { time: {} }
-    bv_uit_thuis:
-      name: "[UIT] Boven - Zet UIT tijdens Dag (Thuis)"
+      
+    bv_uit_thuis_heat:
+      name: "[UIT] Boven - Verwarmen UIT (Thuis)"
       default: false
       selector: { boolean: {} }
     bv_temp_home_heat:
-      name: "Boven - Verwarmen (Thuis)"
+      name: "Boven - Verwarmen Temp (Thuis)"
       default: 19
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_uit_thuis_cool:
+      name: "[UIT] Boven - Koelen UIT (Thuis)"
+      default: false
+      selector: { boolean: {} }
     bv_temp_home_cool:
-      name: "Boven - Koelen (Thuis)"
+      name: "Boven - Koelen Temp (Thuis)"
       default: 24
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_pre_bed:
-      name: "[UIT] Boven - Zet UIT tijdens Pre-Bed"
+      
+    bv_uit_pre_bed_heat:
+      name: "[UIT] Boven - Verwarmen UIT (Pre-Bed)"
       default: false
       selector: { boolean: {} }
     bv_temp_pre_bed_heat:
-      name: "Boven - Verwarmen (Pre-Bed)"
+      name: "Boven - Verwarmen Temp (Pre-Bed)"
       default: 21
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_uit_pre_bed_cool:
+      name: "[UIT] Boven - Koelen UIT (Pre-Bed)"
+      default: false
+      selector: { boolean: {} }
     bv_temp_pre_bed_cool:
-      name: "Boven - Koelen (Pre-Bed)"
+      name: "Boven - Koelen Temp (Pre-Bed)"
       default: 22
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_weg:
-      name: "[UIT] Boven - Zet UIT tijdens Weg"
+      
+    bv_uit_weg_heat:
+      name: "[UIT] Boven - Verwarmen UIT (Weg)"
       default: false
       selector: { boolean: {} }
     bv_temp_away_heat:
-      name: "Boven - Verwarmen (Weg)"
+      name: "Boven - Verwarmen Temp (Weg)"
       default: 18
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_uit_weg_cool:
+      name: "[UIT] Boven - Koelen UIT (Weg)"
+      default: false
+      selector: { boolean: {} }
     bv_temp_away_cool:
-      name: "Boven - Koelen (Weg)"
+      name: "Boven - Koelen Temp (Weg)"
       default: 26
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_nacht:
-      name: "[UIT] Boven - Zet UIT in de Nacht"
+      
+    bv_uit_nacht_heat:
+      name: "[UIT] Boven - Verwarmen UIT (Nacht)"
       default: true
       selector: { boolean: {} }
     bv_temp_night_heat:
-      name: "Boven - Verwarmen (Nacht)"
+      name: "Boven - Verwarmen Temp (Nacht)"
       default: 18
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
+    bv_uit_nacht_cool:
+      name: "[UIT] Boven - Koelen UIT (Nacht)"
+      default: true
+      selector: { boolean: {} }
     bv_temp_night_cool:
-      name: "Boven - Koelen (Nacht)"
+      name: "Boven - Koelen Temp (Nacht)"
       default: 24
       selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
@@ -245,7 +295,6 @@ trigger:
 
 action:
   - variables:
-      # Weer en Marges
       buiten_sensor_var: !input buiten_sensor
       buiten_max_sensor_var: !input buiten_max_sensor
       omslag_koud: !input buiten_temp_verwarmen
@@ -261,47 +310,57 @@ action:
       airco_wk_var: !input airco_woonkamer
       wk_t_dag: !input wk_tijd_dag
       wk_t_nacht: !input wk_tijd_nacht
+      wk_u_h_heat: !input wk_uit_thuis_heat
       wk_h_heat: !input wk_temp_home_heat
+      wk_u_h_cool: !input wk_uit_thuis_cool
       wk_h_cool: !input wk_temp_home_cool
+      wk_u_a_heat: !input wk_uit_weg_heat
       wk_a_heat: !input wk_temp_away_heat
+      wk_u_a_cool: !input wk_uit_weg_cool
       wk_a_cool: !input wk_temp_away_cool
+      wk_u_n_heat: !input wk_uit_nacht_heat
       wk_n_heat: !input wk_temp_night_heat
+      wk_u_n_cool: !input wk_uit_nacht_cool
       wk_n_cool: !input wk_temp_night_cool
-      wk_u_h: !input wk_uit_thuis
-      wk_u_a: !input wk_uit_weg
-      wk_u_n: !input wk_uit_nacht
       
       # Keuken Inputs
       airco_kk_var: !input airco_keuken
       kk_t_dag: !input kk_tijd_dag
       kk_t_nacht: !input kk_tijd_nacht
+      kk_u_h_heat: !input kk_uit_thuis_heat
       kk_h_heat: !input kk_temp_home_heat
+      kk_u_h_cool: !input kk_uit_thuis_cool
       kk_h_cool: !input kk_temp_home_cool
+      kk_u_a_heat: !input kk_uit_weg_heat
       kk_a_heat: !input kk_temp_away_heat
+      kk_u_a_cool: !input kk_uit_weg_cool
       kk_a_cool: !input kk_temp_away_cool
+      kk_u_n_heat: !input kk_uit_nacht_heat
       kk_n_heat: !input kk_temp_night_heat
+      kk_u_n_cool: !input kk_uit_nacht_cool
       kk_n_cool: !input kk_temp_night_cool
-      kk_u_h: !input kk_uit_thuis
-      kk_u_a: !input kk_uit_weg
-      kk_u_n: !input kk_uit_nacht
       
       # Boven Inputs
       airco_bv_var: !input airco_boven
       bv_t_dag: !input bv_tijd_dag
       bv_t_pre: !input bv_tijd_pre_bed
       bv_t_nacht: !input bv_tijd_nacht
+      bv_u_h_heat: !input bv_uit_thuis_heat
       bv_h_heat: !input bv_temp_home_heat
+      bv_u_h_cool: !input bv_uit_thuis_cool
       bv_h_cool: !input bv_temp_home_cool
+      bv_u_p_heat: !input bv_uit_pre_bed_heat
       bv_p_heat: !input bv_temp_pre_bed_heat
+      bv_u_p_cool: !input bv_uit_pre_bed_cool
       bv_p_cool: !input bv_temp_pre_bed_cool
+      bv_u_a_heat: !input bv_uit_weg_heat
       bv_a_heat: !input bv_temp_away_heat
+      bv_u_a_cool: !input bv_uit_weg_cool
       bv_a_cool: !input bv_temp_away_cool
+      bv_u_n_heat: !input bv_uit_nacht_heat
       bv_n_heat: !input bv_temp_night_heat
+      bv_u_n_cool: !input bv_uit_nacht_cool
       bv_n_cool: !input bv_temp_night_cool
-      bv_u_h: !input bv_uit_thuis
-      bv_u_p: !input bv_uit_pre_bed
-      bv_u_a: !input bv_uit_weg
-      bv_u_n: !input bv_uit_nacht
       
       iemand_thuis: >
         {{ expand(telefoons_var) | selectattr('state', 'eq', 'home') | list | length > 0 }}
@@ -340,34 +399,33 @@ action:
           {% else %} off {% endif %}
         {% endif %}
 
-      # --- VERNIEUWDE BEREKENING: Kies automatisch Verwarmen of Koelen ---
       doel_wk: >
         {% if not iemand_thuis %}
-          {% if wk_u_a %} off {% elif gekozen_modus == 'cool' %} {{ wk_a_cool }} {% else %} {{ wk_a_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if wk_u_a_cool else wk_a_cool }} {% else %} {{ 'off' if wk_u_a_heat else wk_a_heat }} {% endif %}
         {% elif not is_dag_wk %}
-          {% if wk_u_n %} off {% elif gekozen_modus == 'cool' %} {{ wk_n_cool }} {% else %} {{ wk_n_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if wk_u_n_cool else wk_n_cool }} {% else %} {{ 'off' if wk_u_n_heat else wk_n_heat }} {% endif %}
         {% else %}
-          {% if wk_u_h %} off {% elif gekozen_modus == 'cool' %} {{ wk_h_cool }} {% else %} {{ wk_h_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if wk_u_h_cool else wk_h_cool }} {% else %} {{ 'off' if wk_u_h_heat else wk_h_heat }} {% endif %}
         {% endif %}
         
       doel_kk: >
         {% if not iemand_thuis %}
-          {% if kk_u_a %} off {% elif gekozen_modus == 'cool' %} {{ kk_a_cool }} {% else %} {{ kk_a_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if kk_u_a_cool else kk_a_cool }} {% else %} {{ 'off' if kk_u_a_heat else kk_a_heat }} {% endif %}
         {% elif not is_dag_kk %}
-          {% if kk_u_n %} off {% elif gekozen_modus == 'cool' %} {{ kk_n_cool }} {% else %} {{ kk_n_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if kk_u_n_cool else kk_n_cool }} {% else %} {{ 'off' if kk_u_n_heat else kk_n_heat }} {% endif %}
         {% else %}
-          {% if kk_u_h %} off {% elif gekozen_modus == 'cool' %} {{ kk_h_cool }} {% else %} {{ kk_h_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if kk_u_h_cool else kk_h_cool }} {% else %} {{ 'off' if kk_u_h_heat else kk_h_heat }} {% endif %}
         {% endif %}
         
       doel_bv: >
         {% if not iemand_thuis %}
-          {% if bv_u_a %} off {% elif gekozen_modus == 'cool' %} {{ bv_a_cool }} {% else %} {{ bv_a_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_a_cool else bv_a_cool }} {% else %} {{ 'off' if bv_u_a_heat else bv_a_heat }} {% endif %}
         {% elif is_pre_bed_bv %}
-          {% if bv_u_p %} off {% elif gekozen_modus == 'cool' %} {{ bv_p_cool }} {% else %} {{ bv_p_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_p_cool else bv_p_cool }} {% else %} {{ 'off' if bv_u_p_heat else bv_p_heat }} {% endif %}
         {% elif not is_dag_bv %}
-          {% if bv_u_n %} off {% elif gekozen_modus == 'cool' %} {{ bv_n_cool }} {% else %} {{ bv_n_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_n_cool else bv_n_cool }} {% else %} {{ 'off' if bv_u_n_heat else bv_n_heat }} {% endif %}
         {% else %}
-          {% if bv_u_h %} off {% elif gekozen_modus == 'cool' %} {{ bv_h_cool }} {% else %} {{ bv_h_heat }} {% endif %}
+          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_h_cool else bv_h_cool }} {% else %} {{ 'off' if bv_u_h_heat else bv_h_heat }} {% endif %}
         {% endif %}
 
       huidig_wk: "{{ state_attr(airco_wk_var, 'current_temperature') | float(20) }}"
