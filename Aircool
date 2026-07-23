@@ -1,80 +1,80 @@
 blueprint:
-  name: Geavanceerde HVAC Klimaatregeling
-  description: Volledig autonoom systeem met zomer/winter curves, aanwezigheid, tijdsvakken en hardware protectie.
+  name: "Geavanceerde HVAC Klimaatregeling"
+  description: "Volledig autonoom systeem met zomer/winter curves, aanwezigheid, tijdsvakken en hardware protectie."
   domain: automation
   input:
     # --- ENTITEITEN ---
     climate_entity:
-      name: Airco Unit
+      name: "Airco Unit"
       selector: { entity: { domain: climate } }
     room_sensor:
-      name: Ruimte Temperatuur (Gebruik bij voorkeur een Gemiddelde Helper)
+      name: "Ruimte Temperatuur (Gebruik bij voorkeur een Gemiddelde Helper)"
       selector: { entity: { domain: sensor, device_class: temperature } }
     outside_sensor:
-      name: Buiten Temperatuur
+      name: "Buiten Temperatuur"
       selector: { entity: { domain: sensor, device_class: temperature } }
     door_sensor:
-      name: Deursensor
+      name: "Deursensor"
       selector: { entity: { domain: binary_sensor } }
     presence_sensor:
-      name: Aanwezigheid (WiFi / Groep)
+      name: "Aanwezigheid (WiFi / Groep)"
       selector: { entity: { domain: [device_tracker, binary_sensor] } }
     heatwave_sensor:
-      name: Hittegolf Verwachting (Voor pre-cool)
+      name: "Hittegolf Verwachting (Voor pre-cool)"
       selector: { entity: { domain: binary_sensor } }
 
     # --- TEMPERATUUR INSTELLINGEN ---
     base_target:
-      name: Basis Comfort Temperatuur
+      name: "Basis Comfort Temperatuur"
       default: 21.0
       selector: { number: { min: 18, max: 26, step: 0.5, unit_of_measurement: "°C" } }
     max_summer_target:
-      name: Maximaal toegestane binnentemperatuur (Zomercurve limiet)
+      name: "Maximaal toegestane binnentemperatuur (Zomercurve limiet)"
       default: 25.0
       selector: { number: { min: 22, max: 30, step: 0.5, unit_of_measurement: "°C" } }
     eco_offset:
-      name: Eco Offset (Afwezig of Dag-modus)
+      name: "Eco Offset (Afwezig of Dag-modus)"
       description: "Hoeveel graden mag de temp afwijken als er niemand is?"
       default: 2.0
       selector: { number: { min: 0, max: 5, step: 0.5, unit_of_measurement: "°C" } }
     night_hot_limit:
-      name: Nacht: Max temp (Extreme hitte beveiliging)
+      name: "Nacht: Max temp (Extreme hitte beveiliging)"
       default: 27.0
       selector: { number: { min: 22, max: 30, step: 0.5, unit_of_measurement: "°C" } }
     night_cold_limit:
-      name: Nacht: Min temp (Vorst/Kou beveiliging)
+      name: "Nacht: Min temp (Vorst/Kou beveiliging)"
       default: 15.0
       selector: { number: { min: 10, max: 20, step: 0.5, unit_of_measurement: "°C" } }
 
     # --- TIJDSVAKKEN ---
     time_day:
-      name: Start Dag (Eco / Relaxed)
+      name: "Start Dag (Eco / Relaxed)"
       default: "08:00:00"
       selector: { time: {} }
     time_evening:
-      name: Start Avond (Comfort voor slapen)
+      name: "Start Avond (Comfort voor slapen)"
       default: "18:00:00"
       selector: { time: {} }
     time_night:
-      name: Start Nacht (Systeem Uit / Veiligheid)
+      name: "Start Nacht (Systeem Uit / Veiligheid)"
       default: "23:00:00"
       selector: { time: {} }
 
     # --- FUNCTIES & HARDWARE PROTECTIE ---
     enable_precool:
-      name: Sta Pre-cool toe bij hittegolf (S'nachts doorkoelen)
+      name: "Sta Pre-cool toe bij hittegolf (S'nachts doorkoelen)"
       default: false
       selector: { boolean: {} }
     door_delay:
-      name: Deur Vertraging (minuten)
+      name: "Deur Vertraging (minuten)"
       default: 2
       selector: { number: { min: 0, max: 10, step: 1 } }
     compressor_delay:
-      name: Anti-Short Cycle (minuten rust voor compressor)
+      name: "Anti-Short Cycle (minuten rust voor compressor)"
       default: 15
       selector: { number: { min: 5, max: 60, step: 1 } }
     fan_runon_delay:
-      name: Anti-Schimmel Naloop (minuten Fan-only na koelen)
+      name: "Anti-Schimmel Naloop (minuten Fan-only na koelen)"
       default: 15
       selector: { number: { min: 0, max: 30, step: 1 } }
 
@@ -110,8 +110,6 @@ variables:
   is_day: '{{ current_time >= !input time_day and current_time < !input time_evening }}'
 
   # Dynamische Target Berekening
-  # Zomer: buiten - 6, max=max_summer, min=base_target
-  # Winter: base + 0.5 (als buiten < 5)
   calculated_target_comfort: >
     {% if outside_temp > 22 %}
       {% set temp = outside_temp - 6 %}
@@ -122,8 +120,7 @@ variables:
       {{ base_target | float }}
     {% endif %}
 
-  # Pas eco offset toe als we afwezig zijn of als het de 'dag' modus is op de bovenverdieping
-  # (Voor woonkamer is day=comfort, we doen offset alleen bij afwezig)
+  # Pas eco offset toe
   final_target: >
     {% if not is_present %}
       {% if outside_temp > 22 %}
@@ -148,7 +145,7 @@ trigger:
   - platform: state
     entity_id: !input door_sensor
     for:
-      minutes: !input door_delay # Hardware protectie: Deur vertraging
+      minutes: !input door_delay
   - platform: time
     at: !input time_day
   - platform: time
@@ -157,8 +154,6 @@ trigger:
     at: !input time_night
 
 condition:
-  # Hardware protectie: Anti-Short Cycle
-  # Voert de automatisering niet uit als de airco korter dan X minuten geleden is gewijzigd
   - condition: template
     value_template: >
       {{ (now() - states[climate_entity].last_changed).total_seconds() > compressor_delay_sec 
@@ -166,12 +161,11 @@ condition:
 
 action:
   - choose:
-      # 1. DEUR OPEN -> Direct actie
+      # 1. DEUR OPEN
       - conditions:
           - condition: template
             value_template: '{{ door_open }}'
         sequence:
-          # Naloop check
           - choose:
               - conditions:
                   - condition: state
@@ -192,7 +186,6 @@ action:
             value_template: '{{ is_night and not door_open }}'
         sequence:
           - choose:
-              # 2a. Pre-cool Hittegolf
               - conditions:
                   - condition: template
                     value_template: '{{ precool_enabled and is_heatwave and room_temp > 19 }}'
@@ -201,7 +194,6 @@ action:
                     target: { entity_id: !input climate_entity }
                     data: { temperature: 19, hvac_mode: cool }
               
-              # 2b. Extreme hitte (Boven limiet)
               - conditions:
                   - condition: template
                     value_template: '{{ room_temp > night_hot }}'
@@ -210,7 +202,6 @@ action:
                     target: { entity_id: !input climate_entity }
                     data: { temperature: night_hot, hvac_mode: cool }
               
-              # 2c. Extreme kou (Onder limiet)
               - conditions:
                   - condition: template
                     value_template: '{{ room_temp < night_cold }}'
@@ -219,7 +210,6 @@ action:
                     target: { entity_id: !input climate_entity }
                     data: { temperature: night_cold, hvac_mode: heat }
             
-            # 2d. Binnen veiligheidsmarges in de nacht -> UIT
             default:
               - choose:
                   - conditions:
@@ -235,14 +225,12 @@ action:
               - action: climate.turn_off
                 target: { entity_id: !input climate_entity }
 
-      # 3. DAG / AVOND MODUS (Reguliere klimaatregeling)
+      # 3. DAG / AVOND MODUS
       - conditions:
           - condition: template
             value_template: '{{ not is_night and not door_open }}'
         sequence:
-          # Bepaal actie op basis van dynamische target (final_target)
           - choose:
-              # Koelen nodig
               - conditions:
                   - condition: template
                     value_template: '{{ room_temp > (final_target + 0.5) and outside_temp > room_temp }}'
@@ -250,13 +238,11 @@ action:
                   - action: climate.set_temperature
                     target: { entity_id: !input climate_entity }
                     data: { temperature: '{{ final_target }}', hvac_mode: cool }
-                  # Proportionele fan speed
                   - action: climate.set_fan_mode
                     target: { entity_id: !input climate_entity }
                     data:
                       fan_mode: '{{ "high" if temp_diff > 2 else ("medium" if temp_diff > 1 else "low") }}'
 
-              # Verwarmen nodig
               - conditions:
                   - condition: template
                     value_template: '{{ room_temp < (final_target - 0.5) }}'
@@ -269,7 +255,6 @@ action:
                     data:
                       fan_mode: '{{ "high" if temp_diff > 2 else ("medium" if temp_diff > 1 else "low") }}'
 
-              # Op temperatuur
               - conditions:
                   - condition: template
                     value_template: '{{ room_temp >= (final_target - 0.5) and room_temp <= (final_target + 0.5) }}'
