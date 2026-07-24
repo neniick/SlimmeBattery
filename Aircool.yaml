@@ -1,6 +1,6 @@
 blueprint:
-  name: "Geavanceerde HVAC Klimaatregeling"
-  description: "Volledig autonoom systeem met zomer/winter curves, aanwezigheid, tijdsvakken en hardware protectie."
+  name: "Geavanceerde HVAC Klimaatregeling V2"
+  description: "Volledig autonoom systeem met multi-device aanwezigheid, tijdsvakken, Eco-offsets en hardware protectie."
   domain: automation
   input:
     # --- ENTITEITEN ---
@@ -8,7 +8,7 @@ blueprint:
       name: "Airco Unit"
       selector: { entity: { domain: climate } }
     room_sensor:
-      name: "Ruimte Temperatuur (Gebruik bij voorkeur een Gemiddelde Helper)"
+      name: "Ruimte Temperatuur (Kies je Matter sensor)"
       selector: { entity: { domain: sensor, device_class: temperature } }
     outside_sensor:
       name: "Buiten Temperatuur"
@@ -16,9 +16,13 @@ blueprint:
     door_sensor:
       name: "Deursensor"
       selector: { entity: { domain: binary_sensor } }
-    presence_sensor:
-      name: "Aanwezigheid (WiFi / Groep)"
-      selector: { entity: { domain: [device_tracker, binary_sensor] } }
+    presence_sensors:
+      name: "Aanwezigheid (Selecteer 1 of meerdere telefoons)"
+      description: "Bijv. de TP-Link trackers. Je bent 'thuis' zodra 1 apparaat in deze lijst 'home' of 'on' is."
+      selector: 
+        entity: 
+          domain: [device_tracker, binary_sensor]
+          multiple: true
     heatwave_sensor:
       name: "Hittegolf Verwachting (Voor pre-cool)"
       selector: { entity: { domain: binary_sensor } }
@@ -32,11 +36,37 @@ blueprint:
       name: "Maximaal toegestane binnentemperatuur (Zomercurve limiet)"
       default: 25.0
       selector: { number: { min: 22, max: 30, step: 0.5, unit_of_measurement: "°C" } }
+    hysterese:
+      name: "Normale Marge (Hysterese)"
+      description: "Voorkomt continu aan/uit slaan. 0.5 = koelen bij +0.5 en verwarmen bij -0.5 t.o.v. je doel."
+      default: 0.5
+      selector: { number: { min: 0.1, max: 2.0, step: 0.1, unit_of_measurement: "°C" } }
     eco_offset:
-      name: "Eco Offset (Afwezig of Dag-modus)"
-      description: "Hoeveel graden mag de temp afwijken als er niemand is?"
+      name: "Brede Marge (Eco Offset)"
+      description: "Hoeveel graden mag het afwijken als niemand thuis is (of overdag op een slaapkamer)?"
       default: 2.0
       selector: { number: { min: 0, max: 5, step: 0.5, unit_of_measurement: "°C" } }
+    
+    # --- TIJDSVAK & MODUS INSTELLINGEN ---
+    apply_eco_during_day:
+      name: "Gebruik Brede Marge tijdens de Dag (Voor slaapkamers)"
+      description: "AAN voor boven, UIT voor woonkamer. Negeert overdag aanwezigheid en hanteert de eco-stand."
+      default: false
+      selector: { boolean: {} }
+    time_day:
+      name: "Start Dag (Start Eco voor slaapkamers)"
+      default: "08:00:00"
+      selector: { time: {} }
+    time_evening:
+      name: "Start Avond (Start Comfort voor slapen)"
+      default: "18:00:00"
+      selector: { time: {} }
+    time_night:
+      name: "Start Nacht (Systeem uit, enkel veiligheid)"
+      default: "23:00:00"
+      selector: { time: {} }
+      
+    # --- NACHT VEILIGHEID ---
     night_hot_limit:
       name: "Nacht: Max temp (Extreme hitte beveiliging)"
       default: 27.0
@@ -45,20 +75,6 @@ blueprint:
       name: "Nacht: Min temp (Vorst/Kou beveiliging)"
       default: 15.0
       selector: { number: { min: 10, max: 20, step: 0.5, unit_of_measurement: "°C" } }
-
-    # --- TIJDSVAKKEN ---
-    time_day:
-      name: "Start Dag (Eco / Relaxed)"
-      default: "08:00:00"
-      selector: { time: {} }
-    time_evening:
-      name: "Start Avond (Comfort voor slapen)"
-      default: "18:00:00"
-      selector: { time: {} }
-    time_night:
-      name: "Start Nacht (Systeem Uit / Veiligheid)"
-      default: "23:00:00"
-      selector: { time: {} }
 
     # --- FUNCTIES & HARDWARE PROTECTIE ---
     enable_precool:
@@ -84,22 +100,24 @@ variables:
   # Input variables
   room_sensor: !input room_sensor
   outside_sensor: !input outside_sensor
-  presence_sensor: !input presence_sensor
+  presence_entities: !input presence_sensors
   door_sensor: !input door_sensor
   heatwave_sensor: !input heatwave_sensor
   climate_entity: !input climate_entity
   base_target: !input base_target
   max_summer: !input max_summer_target
+  hysterese_var: !input hysterese
   eco_offset: !input eco_offset
   night_hot: !input night_hot_limit
   night_cold: !input night_cold_limit
   precool_enabled: !input enable_precool
   compressor_delay_sec: '{{ ( !input compressor_delay ) * 60 }}'
+  apply_eco_day: !input apply_eco_during_day
 
   # State variables
   room_temp: '{{ states(room_sensor) | float(21) }}'
   outside_temp: '{{ states(outside_sensor) | float(21) }}'
-  is_present: '{{ states(presence_sensor) in ["home", "on"] }}'
+  is_present: "{{ expand(presence_entities) | selectattr('state', 'in', ['home', 'on']) | list | length > 0 }}"
   door_open: '{{ states(door_sensor) == "on" }}'
   is_heatwave: '{{ states(heatwave_sensor) == "on" }}'
   
@@ -109,7 +127,7 @@ variables:
   is_evening: '{{ current_time >= !input time_evening and current_time < !input time_night }}'
   is_day: '{{ current_time >= !input time_day and current_time < !input time_evening }}'
 
-  # Dynamische Target Berekening
+  # 1. Basis Comfort Berekening (Zomer/Winter curve)
   calculated_target_comfort: >
     {% if outside_temp > 22 %}
       {% set temp = outside_temp - 6 %}
@@ -120,9 +138,10 @@ variables:
       {{ base_target | float }}
     {% endif %}
 
-  # Pas eco offset toe
+  # 2. Toevoegen van de Brede Marge (Eco-Offset)
   final_target: >
-    {% if not is_present %}
+    {% set use_eco = (not is_present) or (apply_eco_day and is_day) %}
+    {% if use_eco %}
       {% if outside_temp > 22 %}
         {{ calculated_target_comfort + eco_offset }}
       {% else %}
@@ -132,7 +151,7 @@ variables:
       {{ calculated_target_comfort }}
     {% endif %}
 
-  # Verschil berekenen voor proportionele Fan speed
+  # Verschil voor ventilatorsnelheid
   temp_diff: '{{ (room_temp - final_target) | abs }}'
 
 trigger:
@@ -141,7 +160,7 @@ trigger:
   - platform: state
     entity_id: !input outside_sensor
   - platform: state
-    entity_id: !input presence_sensor
+    entity_id: !input presence_sensors
   - platform: state
     entity_id: !input door_sensor
     for:
@@ -231,9 +250,10 @@ action:
             value_template: '{{ not is_night and not door_open }}'
         sequence:
           - choose:
+              # KOELEN
               - conditions:
                   - condition: template
-                    value_template: '{{ room_temp > (final_target + 0.5) and outside_temp > room_temp }}'
+                    value_template: '{{ room_temp > (final_target + hysterese_var) and outside_temp > room_temp }}'
                 sequence:
                   - action: climate.set_temperature
                     target: { entity_id: !input climate_entity }
@@ -243,9 +263,10 @@ action:
                     data:
                       fan_mode: '{{ "high" if temp_diff > 2 else ("medium" if temp_diff > 1 else "low") }}'
 
+              # VERWARMEN
               - conditions:
                   - condition: template
-                    value_template: '{{ room_temp < (final_target - 0.5) }}'
+                    value_template: '{{ room_temp < (final_target - hysterese_var) }}'
                 sequence:
                   - action: climate.set_temperature
                     target: { entity_id: !input climate_entity }
@@ -255,9 +276,10 @@ action:
                     data:
                       fan_mode: '{{ "high" if temp_diff > 2 else ("medium" if temp_diff > 1 else "low") }}'
 
+              # OP TEMPERATUUR (UIT)
               - conditions:
                   - condition: template
-                    value_template: '{{ room_temp >= (final_target - 0.5) and room_temp <= (final_target + 0.5) }}'
+                    value_template: '{{ room_temp >= (final_target - hysterese_var) and room_temp <= (final_target + hysterese_var) }}'
                 sequence:
                   - choose:
                       - conditions:
