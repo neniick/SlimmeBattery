@@ -1,11 +1,12 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Dynamic Trade Fix)"
+  name: "Nul op de Meter - Vanaf Nul (Hardware Limit Fix)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
     - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (Hardware Lock).
+    - BEVEILIGING: Zet bij de 'None' (Idle) status ook actief de vermogens naar 0W.
+    - BEVEILIGING: Leest live de integratie-limieten uit om range-crashes te voorkomen.
     - Fix: Native Typing 'None' crash volledig geëlimineerd.
     - Boterzachte demping voor een perfecte 0-meting.
-    - NIEUW: Dynamische handelsbodem zodat je accu niet meer onnodig vol blijft zitten.
   domain: automation
 
   input:
@@ -112,8 +113,7 @@ blueprint:
       selector: { number: { min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€" } }
     min_discharge_price:
       name: "Prijs: Minimale Verkoopprijs (€/kWh)"
-      description: "Verlaag dit in de zomer! Anders verkoopt de accu niets."
-      default: 0.15
+      default: 0.35
       selector: { number: { min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€" } }
 
     grid_deadband_w:
@@ -191,12 +191,10 @@ trigger:
 
 action:
   - variables:
-      # Data inladen
       soc: "{{ states(v_soc) | float(0.0) }}"
       grid_w: "{{ states(v_grid) | float(0.0) }}"
       price: "{{ states(v_price) | float(99.0) }}"
       
-      # FIX: Lees de status direct uit tijdens de berekening
       cur_c: "{{ states(v_num_c) | float(0.0) if states(v_sel_mode) == 'Solis RC Force Battery Charge' else 0.0 }}"
       cur_d: "{{ states(v_num_d) | float(0.0) if states(v_sel_mode) == 'Solis RC Force Battery Discharge' else 0.0 }}"
       real_demand: "{{ grid_w + cur_d - cur_c }}"
@@ -224,7 +222,7 @@ action:
       shortfall_kwh: "{{ [(target_kwh - (current_kwh + safe_solar)), 0.0] | max }}"
       needs_charge: "{{ (shortfall_kwh | float(0.0)) > 0.5 }}"
 
-      # Tijdvak Logica: Zoek LAAGSTE prijs BINNEN het opgegeven uurvak
+      # Tijdvak Logica
       c_start: "{{ v_c_start | int(10) }}"
       c_end: "{{ v_c_end | int(16) }}"
       in_charge_window: "{{ hour >= c_start and hour <= c_end }}"
@@ -252,7 +250,7 @@ action:
       
       is_cheapest_buy_hour: "{{ in_charge_window | bool(false) and price <= ((min_buy_price | float(99.0)) + 0.0001) }}"
 
-      # Verkoop analyse (Over de volledige horizon)
+      # Verkoop analyse
       max_sell_price: >-
         {% set ns = namespace(p=[price]) %}
         {% set l = v_lookahead | int(12) %}
@@ -266,13 +264,12 @@ action:
         
       is_most_expensive_hour: "{{ price >= ((max_sell_price | float(0.0)) - 0.0001) }}"
 
-      # ================= BESLISSINGEN (NIEUWE DYNAMISCHE BODEM) =================
+      # Beslissingen
       should_buy_grid: >-
         {{ needs_charge | bool(false) 
            and is_cheapest_buy_hour | bool(false) 
            and price <= (v_max_buy | float(0.25)) }}
 
-      # We combineren de algemene handelsbodem en je survival-marge in één dynamische grens
       dynamic_trade_bottom: "{{ [v_trade_bottom | float(50.0), active_target_soc | float(50.0)] | max }}"
            
       should_sell_grid: >-
@@ -284,6 +281,10 @@ action:
   - variables:
       safe_deadband: "{{ v_deadband | float(300.0) }}"
       
+      # Vraag de absolute hardware-limieten van de integratie op
+      hw_max_c: "{{ state_attr(v_num_c, 'max') | float(10000.0) }}"
+      hw_max_d: "{{ state_attr(v_num_d, 'max') | float(10000.0) }}"
+      
       target_mode: >-
         {% if should_buy_grid | bool(false) %}GridCharge
         {% elif should_sell_grid | bool(false) %}GridDischarge
@@ -291,24 +292,33 @@ action:
         {% elif real_demand < (0.0 - safe_deadband) and soc < 100.0 %}HouseCharge
         {% else %}Idle{% endif %}
 
-      target_power: >-
+      raw_target_power: >-
+        {% set p = 0.0 %}
         {% if target_mode == 'GridCharge' %}
-          {{ v_pwr_gc | float(4000.0) }}
+          {% set p = v_pwr_gc | float(4000.0) %}
         {% elif target_mode == 'GridDischarge' %}
-          {{ v_pwr_gd | float(4000.0) }}
+          {% set p = v_pwr_gd | float(4000.0) %}
         {% elif target_mode == 'HouseDischarge' %}
           {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
           {% set pwr = [raw_new | round(0) | float(0.0), 0.0] | max %}
-          {{ [pwr, (v_pwr_hd | float(6000.0))] | min }}
+          {% set p = [pwr, (v_pwr_hd | float(6000.0))] | min %}
         {% elif target_mode == 'HouseCharge' %}
           {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
           {% set pwr = [(raw_new * -1) | round(0) | float(0.0), 0.0] | max %}
-          {{ [pwr, (v_pwr_hc | float(8000.0))] | min }}
+          {% set p = [pwr, (v_pwr_hc | float(8000.0))] | min %}
+        {% endif %}
+        {{ p }}
+        
+      # De veilige target-power knipt de waarde af op de max van de omvormer
+      target_power: >-
+        {% if 'Discharge' in target_mode %}
+          {{ [raw_target_power | float(0.0), hw_max_d | float(10000.0)] | min }}
+        {% elif 'Charge' in target_mode %}
+          {{ [raw_target_power | float(0.0), hw_max_c | float(10000.0)] | min }}
         {% else %}
           0.0
         {% endif %}
 
-      # ================= FIX: HARDWARE INTERLOCK VOLLEDIG VEILIG =================
       cur_simple: >-
         {% set s = states(v_sel_mode) | string %}
         {% if 'Discharge' in s %}Discharge
@@ -332,9 +342,8 @@ action:
     data:
       level: info
       message: >
-        [Nul-op-de-meter V2] Uur={{ hour }}. Huidig=€{{ price | round(3) }}, Piek=€{{ max_sell_price | round(3) }}.
-        Target SOC={{ active_target_soc | round(0) }}%. Handelsbodem={{ dynamic_trade_bottom | round(0) }}%.
-        Mode={{ target_mode }}, Power={{ target_power }}W. Lock Active: {{ 'YES' if transition_lock == 'true' else 'NO' }}.
+        [Nul-op-de-meter V2] Uur={{ hour }}. Mode={{ target_mode }}, Power={{ target_power }}W (HW Limiet={{ hw_max_d if 'Discharge' in target_mode else hw_max_c }}W).
+        Lock Active: {{ 'YES' if transition_lock == 'true' else 'NO' }}.
 
   - choose:
       - conditions: "{{ exec_mode == 'Charge' }}"
