@@ -1,6 +1,6 @@
 blueprint:
-  name: "Dual Setpoint Klimaatregeling"
-  description: "Aansturing via onafhankelijke verwarm- en koelgrenzen (Thuis/Weg/Nacht). Voorkomt pendelen en onnodig koelen bij wisselen van modus."
+  name: "Dual Setpoint Klimaatregeling (Met Herstel-doel)"
+  description: "Onafhankelijke grenzen met een Recovery Target. Trekt de kamer na activatie comfortabel naar het midden en voorkomt pendelen."
   domain: automation
   input:
     climate_entity:
@@ -16,42 +16,55 @@ blueprint:
     # --- AANWEZIGHEID ---
     presence_sensors:
       name: "Aanwezigheid (Selecteer 1 of meerdere telefoons)"
-      description: "Laat leeg als je geen wegsignaal gebruikt. Selecteer je TP-link telefoons. Zodra er 1 thuis is, is de status 'Thuis'."
+      description: "Zodra minimaal 1 apparaat thuis is, telt het huis als 'Thuis'."
       default: []
       selector: 
         entity: 
           domain: [device_tracker, binary_sensor]
           multiple: true
 
-    # --- GRENZEN THUIS ---
+    # --- INSTELLINGEN THUIS ---
     heat_home:
-      name: "Thuis: Verwarmen als temperatuur zakt ONDER"
+      name: "THUIS: Verwarmen als temperatuur zakt ONDER"
       default: 20.0
       selector: { number: { min: 15, max: 25, step: 0.5, unit_of_measurement: "°C" } }
     cool_home:
-      name: "Thuis: Koelen als temperatuur stijgt BOVEN"
+      name: "THUIS: Koelen als temperatuur stijgt BOVEN"
       default: 24.0
       selector: { number: { min: 20, max: 30, step: 0.5, unit_of_measurement: "°C" } }
+    target_home:
+      name: "THUIS: Herstel-doel (Doel van de airco)"
+      description: "Waar moet de airco naartoe werken als hij eenmaal aan springt?"
+      default: 21.5
+      selector: { number: { min: 18, max: 26, step: 0.5, unit_of_measurement: "°C" } }
 
-    # --- GRENZEN WEG ---
+    # --- INSTELLINGEN WEG ---
     heat_away:
-      name: "Weg: Verwarmen als temperatuur zakt ONDER"
+      name: "WEG: Verwarmen als temperatuur zakt ONDER"
       default: 15.0
       selector: { number: { min: 10, max: 20, step: 0.5, unit_of_measurement: "°C" } }
     cool_away:
-      name: "Weg: Koelen als temperatuur stijgt BOVEN"
+      name: "WEG: Koelen als temperatuur stijgt BOVEN"
       default: 28.0
       selector: { number: { min: 24, max: 35, step: 0.5, unit_of_measurement: "°C" } }
+    target_away:
+      name: "WEG: Herstel-doel (Doel van de airco)"
+      default: 18.0
+      selector: { number: { min: 15, max: 25, step: 0.5, unit_of_measurement: "°C" } }
 
-    # --- GRENZEN NACHT ---
+    # --- INSTELLINGEN NACHT ---
     heat_night:
-      name: "Nacht: Verwarmen als temperatuur zakt ONDER"
+      name: "NACHT: Verwarmen als temperatuur zakt ONDER"
       default: 16.0
       selector: { number: { min: 10, max: 20, step: 0.5, unit_of_measurement: "°C" } }
     cool_night:
-      name: "Nacht: Koelen als temperatuur stijgt BOVEN"
+      name: "NACHT: Koelen als temperatuur stijgt BOVEN"
       default: 26.0
       selector: { number: { min: 22, max: 30, step: 0.5, unit_of_measurement: "°C" } }
+    target_night:
+      name: "NACHT: Herstel-doel (Doel van de airco)"
+      default: 19.0
+      selector: { number: { min: 15, max: 24, step: 0.5, unit_of_measurement: "°C" } }
 
     # --- TIJDSVAKKEN ---
     time_morning:
@@ -74,10 +87,13 @@ variables:
   # Inputs in variabelen laden
   h_home: !input heat_home
   c_home: !input cool_home
+  t_home: !input target_home
   h_away: !input heat_away
   c_away: !input cool_away
+  t_away: !input target_away
   h_night: !input heat_night
   c_night: !input cool_night
+  t_night: !input target_night
 
   room_temp: '{{ states(room_sensor) | float(21) }}'
   outside_temp: '{{ states(outside_sensor) | float(21) }}'
@@ -96,7 +112,7 @@ variables:
   night_time: !input time_night
   is_night_time: '{{ current_time >= night_time or current_time < morning_time }}'
 
-  # Selecteer de actieve grenzen
+  # Selecteer de actieve grenzen en doelen
   active_heat_limit: >
     {% if not is_present %}
       {{ h_away }}
@@ -115,6 +131,15 @@ variables:
       {{ c_home }}
     {% endif %}
 
+  active_target: >
+    {% if not is_present %}
+      {{ t_away }}
+    {% elif is_night_time %}
+      {{ t_night }}
+    {% else %}
+      {{ t_home }}
+    {% endif %}
+
 trigger:
   - platform: state
     entity_id: !input room_sensor
@@ -131,7 +156,7 @@ trigger:
 
 action:
   - choose:
-      # Als de trigger de start van de ochtend of nacht is -> Direct uit schakelen
+      # 1. Modus wisseling (Ochtend / Nacht start) -> Direct uit schakelen
       - conditions:
           - condition: trigger
             id: transition_off
@@ -141,25 +166,39 @@ action:
 
     default:
       - choose:
-          # 1. Te koud ÉN het is buiten ook koud -> Actief Verwarmen
+          # 2. Te koud ÉN het is buiten ook koud -> Actief Verwarmen
           - conditions:
               - condition: template
-                value_template: '{{ room_temp < active_heat_limit and outside_temp < active_heat_limit }}'
+                value_template: '{{ room_temp < active_heat_limit and outside_temp < active_target }}'
             sequence:
               - action: climate.set_temperature
                 target: { entity_id: !input climate_entity }
-                data: { temperature: '{{ active_heat_limit }}', hvac_mode: heat }
+                data: { temperature: '{{ active_target }}', hvac_mode: heat }
 
-          # 2. Te warm ÉN het is buiten ook warm -> Actief Koelen
+          # 3. Te warm ÉN het is buiten ook warm -> Actief Koelen
           - conditions:
               - condition: template
-                value_template: '{{ room_temp > active_cool_limit and outside_temp > active_cool_limit }}'
+                value_template: '{{ room_temp > active_cool_limit and outside_temp > active_target }}'
             sequence:
               - action: climate.set_temperature
                 target: { entity_id: !input climate_entity }
-                data: { temperature: '{{ active_cool_limit }}', hvac_mode: cool }
+                data: { temperature: '{{ active_target }}', hvac_mode: cool }
 
-        # 3. Al het andere (Binnen de bandbreedte OF natuurlijke afkoeling/opwarming mogelijk) -> Uit
-        default:
-          - action: climate.turn_off
-            target: { entity_id: !input climate_entity }
+          # 4. Airco is momenteel aan het Verwarmen en het Herstel-doel is bereikt -> Uit
+          - conditions:
+              - condition: template
+                value_template: '{{ states(climate_entity) == "heat" and room_temp >= active_target }}'
+            sequence:
+              - action: climate.turn_off
+                target: { entity_id: !input climate_entity }
+
+          # 5. Airco is momenteel aan het Koelen en het Herstel-doel is bereikt -> Uit
+          - conditions:
+              - condition: template
+                value_template: '{{ states(climate_entity) == "cool" and room_temp <= active_target }}'
+            sequence:
+              - action: climate.turn_off
+                target: { entity_id: !input climate_entity }
+
+        # Als er niets van het bovenstaande aan de hand is, doet hij niets 
+        # (waardoor de airco rustig kan blijven draaien totdat doel bereikt is, of rustig uit kan blijven).
