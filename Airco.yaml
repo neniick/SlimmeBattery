@@ -1,6 +1,6 @@
 blueprint:
-  name: "Eenvoudige Bandbreedte Klimaatregeling (Met Overshoot Blokkade)"
-  description: "Aansturing op vaste doelen (Thuis/Weg/Nacht), 2.5°C schakelband, en buitentemperatuur-blokkade tegen pendelen."
+  name: "Eenvoudige Bandbreedte Klimaatregeling (Multi-Presence)"
+  description: "Aansturing op vaste doelen (Thuis/Weg/Nacht), 2.5°C schakelband, overshoot blokkade en multi-device aanwezigheid."
   domain: automation
   input:
     climate_entity:
@@ -12,11 +12,16 @@ blueprint:
     outside_sensor:
       name: "Buiten Temperatuur Sensor"
       selector: { entity: { domain: sensor, device_class: temperature } }
-    presence_sensor:
-      name: "Aanwezigheid (Optioneel)"
-      description: "Laat leeg als er geen wegsignaal gebruikt wordt."
-      default: ""
-      selector: { entity: { domain: [device_tracker, binary_sensor] } }
+    
+    # --- AANWEZIGHEID (NU MEERDERE MOGELIJK) ---
+    presence_sensors:
+      name: "Aanwezigheid (Selecteer 1 of meerdere telefoons)"
+      description: "Laat leeg als je geen wegsignaal gebruikt. Selecteer je TP-link telefoons. Zodra er 1 thuis is, is de status 'Thuis'."
+      default: []
+      selector: 
+        entity: 
+          domain: [device_tracker, binary_sensor]
+          multiple: true
 
     # --- DOELTEMPERATUREN ---
     target_home:
@@ -47,7 +52,7 @@ mode: restart
 variables:
   room_sensor: !input room_sensor
   outside_sensor: !input outside_sensor
-  presence_input: !input presence_sensor
+  presence_entities: !input presence_sensors
   climate_entity: !input climate_entity
   t_home: !input target_home
   t_away: !input target_away
@@ -56,12 +61,12 @@ variables:
   room_temp: '{{ states(room_sensor) | float(21) }}'
   outside_temp: '{{ states(outside_sensor) | float(21) }}'
   
-  # Bepaal of we 'thuis' of 'weg' zijn
+  # Bepaal of we 'thuis' of 'weg' zijn (Kijkt of minimaal 1 geselecteerd apparaat thuis is)
   is_present: >
-    {% if presence_input != "" and states(presence_input) != 'unknown' %}
-      {{ states(presence_input) in ["home", "on"] }}
-    {% else %}
+    {% if presence_entities | length == 0 %}
       True
+    {% else %}
+      {{ expand(presence_entities) | selectattr('state', 'in', ['home', 'on']) | list | length > 0 }}
     {% endif %}
 
   # Tijd logica
@@ -88,7 +93,7 @@ trigger:
   - platform: state
     entity_id: !input room_sensor
   - platform: state
-    entity_id: !input presence_sensor
+    entity_id: !input presence_sensors
   - platform: time
     at: !input time_morning
     id: transition_off
