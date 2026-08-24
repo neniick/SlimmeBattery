@@ -1,571 +1,134 @@
 blueprint:
-  name: "Slimme Airco Besturing (Dynamische Hardware Limieten)"
-  description: "Volledige controle met dubbele doeltemperaturen, gescheiden marges en veilige limieten (Verwarmen vanaf 16°C, Koelen vanaf 18°C)."
+  name: "Eenvoudige Bandbreedte Klimaatregeling (Met Overshoot Blokkade)"
+  description: "Aansturing op vaste doelen (Thuis/Weg/Nacht), 2.5°C schakelband, en buitentemperatuur-blokkade tegen pendelen."
   domain: automation
   input:
-    # --- AANWEZIGHEID & APPARATEN ---
-    telefoons:
-      name: "Telefoons van Bewoners (WiFi)"
-      selector: { entity: { domain: device_tracker, multiple: true } }
-    afwezigheid_minuten:
-      name: "Vertraging bij Vertrek (Minuten)"
-      default: 15
-      selector: { number: { min: 0, max: 60, step: 1, unit_of_measurement: min } }
-    buiten_sensor:
-      name: "Actuele Buitentemperatuur Sensor"
-      default: sensor.temperatuur
+    climate_entity:
+      name: "Airco Unit"
+      selector: { entity: { domain: climate } }
+    room_sensor:
+      name: "IKEA Temperatuur Sensor (Binnen)"
       selector: { entity: { domain: sensor, device_class: temperature } }
-    buiten_max_sensor:
-      name: "Max. Temperatuur Vandaag (Vooruitkijken)"
+    outside_sensor:
+      name: "Buiten Temperatuur Sensor"
       selector: { entity: { domain: sensor, device_class: temperature } }
+    presence_sensor:
+      name: "Aanwezigheid (Optioneel)"
+      description: "Laat leeg als er geen wegsignaal gebruikt wordt."
+      default: ""
+      selector: { entity: { domain: [device_tracker, binary_sensor] } }
 
-    # --- INSTELLINGEN WOONKAMER ---
-    airco_woonkamer:
-      name: "Airco Woonkamer"
-      selector: { entity: { domain: climate } }
-    wk_tijd_dag:
-      name: "Woonkamer - Start Dag"
+    # --- DOELTEMPERATUREN ---
+    target_home:
+      name: "Doeltemperatuur Thuis"
+      default: 21.0
+      selector: { number: { min: 16, max: 26, step: 0.5, unit_of_measurement: "°C" } }
+    target_away:
+      name: "Doeltemperatuur Weg (Eco)"
+      default: 18.0
+      selector: { number: { min: 15, max: 25, step: 0.5, unit_of_measurement: "°C" } }
+    target_night:
+      name: "Doeltemperatuur Nacht"
+      default: 19.0
+      selector: { number: { min: 15, max: 24, step: 0.5, unit_of_measurement: "°C" } }
+
+    # --- TIJDSVAKKEN ---
+    time_morning:
+      name: "Start Ochtend (Schakelt airco uit en start dagritme)"
       default: "07:00:00"
       selector: { time: {} }
-    wk_tijd_nacht:
-      name: "Woonkamer - Start Nacht"
+    time_night:
+      name: "Start Nacht (Schakelt airco uit en start nachtritme)"
       default: "23:00:00"
       selector: { time: {} }
-      
-    wk_uit_thuis_heat:
-      name: "[UIT] Woonkamer - Verwarmen UIT (Thuis)"
-      default: false
-      selector: { boolean: {} }
-    wk_temp_home_heat:
-      name: "Woonkamer - Verwarmen Temp (Thuis)"
-      default: 21
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_uit_thuis_cool:
-      name: "[UIT] Woonkamer - Koelen UIT (Thuis)"
-      default: false
-      selector: { boolean: {} }
-    wk_temp_home_cool:
-      name: "Woonkamer - Koelen Temp (Thuis)"
-      default: 23
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    wk_uit_weg_heat:
-      name: "[UIT] Woonkamer - Verwarmen UIT (Weg)"
-      default: false
-      selector: { boolean: {} }
-    wk_temp_away_heat:
-      name: "Woonkamer - Verwarmen Temp (Weg)"
-      default: 18
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_uit_weg_cool:
-      name: "[UIT] Woonkamer - Koelen UIT (Weg)"
-      default: false
-      selector: { boolean: {} }
-    wk_temp_away_cool:
-      name: "Woonkamer - Koelen Temp (Weg)"
-      default: 26
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    wk_uit_nacht_heat:
-      name: "[UIT] Woonkamer - Verwarmen UIT (Nacht)"
-      default: false
-      selector: { boolean: {} }
-    wk_temp_night_heat:
-      name: "Woonkamer - Verwarmen Temp (Nacht)"
-      default: 18
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    wk_uit_nacht_cool:
-      name: "[UIT] Woonkamer - Koelen UIT (Nacht)"
-      default: false
-      selector: { boolean: {} }
-    wk_temp_night_cool:
-      name: "Woonkamer - Koelen Temp (Nacht)"
-      default: 25
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
 
-    # --- INSTELLINGEN KEUKEN ---
-    airco_keuken:
-      name: "Airco Keuken"
-      selector: { entity: { domain: climate } }
-    kk_tijd_dag:
-      name: "Keuken - Start Dag"
-      default: "07:00:00"
-      selector: { time: {} }
-    kk_tijd_nacht:
-      name: "Keuken - Start Nacht"
-      default: "23:00:00"
-      selector: { time: {} }
-      
-    kk_uit_thuis_heat:
-      name: "[UIT] Keuken - Verwarmen UIT (Thuis)"
-      default: false
-      selector: { boolean: {} }
-    kk_temp_home_heat:
-      name: "Keuken - Verwarmen Temp (Thuis)"
-      default: 21
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_uit_thuis_cool:
-      name: "[UIT] Keuken - Koelen UIT (Thuis)"
-      default: false
-      selector: { boolean: {} }
-    kk_temp_home_cool:
-      name: "Keuken - Koelen Temp (Thuis)"
-      default: 23
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    kk_uit_weg_heat:
-      name: "[UIT] Keuken - Verwarmen UIT (Weg)"
-      default: false
-      selector: { boolean: {} }
-    kk_temp_away_heat:
-      name: "Keuken - Verwarmen Temp (Weg)"
-      default: 18
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_uit_weg_cool:
-      name: "[UIT] Keuken - Koelen UIT (Weg)"
-      default: false
-      selector: { boolean: {} }
-    kk_temp_away_cool:
-      name: "Keuken - Koelen Temp (Weg)"
-      default: 26
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    kk_uit_nacht_heat:
-      name: "[UIT] Keuken - Verwarmen UIT (Nacht)"
-      default: false
-      selector: { boolean: {} }
-    kk_temp_night_heat:
-      name: "Keuken - Verwarmen Temp (Nacht)"
-      default: 18
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    kk_uit_nacht_cool:
-      name: "[UIT] Keuken - Koelen UIT (Nacht)"
-      default: false
-      selector: { boolean: {} }
-    kk_temp_night_cool:
-      name: "Keuken - Koelen Temp (Nacht)"
-      default: 25
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+mode: restart
 
-    # --- INSTELLINGEN BOVEN ---
-    airco_boven:
-      name: "Airco Boven"
-      selector: { entity: { domain: climate } }
-    bv_tijd_dag:
-      name: "Boven - Start Dag"
-      default: "07:00:00"
-      selector: { time: {} }
-    bv_tijd_pre_bed:
-      name: "Boven - Start Pre-Bed"
-      default: "22:00:00"
-      selector: { time: {} }
-    bv_tijd_nacht:
-      name: "Boven - Start Nacht"
-      default: "23:00:00"
-      selector: { time: {} }
-      
-    bv_uit_thuis_heat:
-      name: "[UIT] Boven - Verwarmen UIT (Thuis)"
-      default: false
-      selector: { boolean: {} }
-    bv_temp_home_heat:
-      name: "Boven - Verwarmen Temp (Thuis)"
-      default: 19
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_thuis_cool:
-      name: "[UIT] Boven - Koelen UIT (Thuis)"
-      default: false
-      selector: { boolean: {} }
-    bv_temp_home_cool:
-      name: "Boven - Koelen Temp (Thuis)"
-      default: 24
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    bv_uit_pre_bed_heat:
-      name: "[UIT] Boven - Verwarmen UIT (Pre-Bed)"
-      default: false
-      selector: { boolean: {} }
-    bv_temp_pre_bed_heat:
-      name: "Boven - Verwarmen Temp (Pre-Bed)"
-      default: 21
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_pre_bed_cool:
-      name: "[UIT] Boven - Koelen UIT (Pre-Bed)"
-      default: false
-      selector: { boolean: {} }
-    bv_temp_pre_bed_cool:
-      name: "Boven - Koelen Temp (Pre-Bed)"
-      default: 22
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    bv_uit_weg_heat:
-      name: "[UIT] Boven - Verwarmen UIT (Weg)"
-      default: false
-      selector: { boolean: {} }
-    bv_temp_away_heat:
-      name: "Boven - Verwarmen Temp (Weg)"
-      default: 18
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_weg_cool:
-      name: "[UIT] Boven - Koelen UIT (Weg)"
-      default: false
-      selector: { boolean: {} }
-    bv_temp_away_cool:
-      name: "Boven - Koelen Temp (Weg)"
-      default: 26
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    bv_uit_nacht_heat:
-      name: "[UIT] Boven - Verwarmen UIT (Nacht)"
-      default: true
-      selector: { boolean: {} }
-    bv_temp_night_heat:
-      name: "Boven - Verwarmen Temp (Nacht)"
-      default: 18
-      selector: { number: { min: 16, max: 30, step: 0.5, unit_of_measurement: °C } }
-    bv_uit_nacht_cool:
-      name: "[UIT] Boven - Koelen UIT (Nacht)"
-      default: true
-      selector: { boolean: {} }
-    bv_temp_night_cool:
-      name: "Boven - Koelen Temp (Nacht)"
-      default: 24
-      selector: { number: { min: 18, max: 30, step: 0.5, unit_of_measurement: °C } }
+variables:
+  room_sensor: !input room_sensor
+  outside_sensor: !input outside_sensor
+  presence_input: !input presence_sensor
+  climate_entity: !input climate_entity
+  t_home: !input target_home
+  t_away: !input target_away
+  t_night: !input target_night
 
-    # --- GLOBALE WEER & MARGE INSTELLINGEN ---
-    buiten_temp_verwarmen:
-      name: "Verwarmen als max/actueel kouder is dan:"
-      default: 18
-      selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
-    buiten_temp_koelen:
-      name: "Koelen als max/actueel warmer is dan:"
-      default: 22
-      selector: { number: { min: 10, max: 30, step: 0.5, unit_of_measurement: °C } }
-      
-    marge_boven_heat:
-      name: "Verwarmen: UITschakelen (Graden Boven Doel)"
-      default: 5.0
-      selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
-    marge_onder_heat:
-      name: "Verwarmen: INschakelen (Graden Onder Doel)"
-      default: 1.0
-      selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
-    marge_boven_cool:
-      name: "Koelen: INschakelen (Graden Boven Doel)"
-      default: 1.0
-      selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
-    marge_onder_cool:
-      name: "Koelen: UITschakelen (Graden Onder Doel)"
-      default: 1.0
-      selector: { number: { min: 0.0, max: 5.0, step: 0.5, unit_of_measurement: °C } }
+  room_temp: '{{ states(room_sensor) | float(21) }}'
+  outside_temp: '{{ states(outside_sensor) | float(21) }}'
+  
+  # Bepaal of we 'thuis' of 'weg' zijn
+  is_present: >
+    {% if presence_input != "" and states(presence_input) != 'unknown' %}
+      {{ states(presence_input) in ["home", "on"] }}
+    {% else %}
+      True
+    {% endif %}
 
-mode: single
+  # Tijd logica
+  current_time: '{{ now().strftime("%H:%M:%S") }}'
+  morning_time: !input time_morning
+  night_time: !input time_night
+  is_night_time: '{{ current_time >= night_time or current_time < morning_time }}'
+
+  # Selecteer de actieve doeltemperatuur
+  active_target: >
+    {% if not is_present %}
+      {{ t_away }}
+    {% elif is_night_time %}
+      {{ t_night }}
+    {% else %}
+      {{ t_home }}
+    {% endif %}
+
+  # De grenzen (2.5 graden marge)
+  lower_limit: '{{ active_target - 2.5 }}'
+  upper_limit: '{{ active_target + 2.5 }}'
 
 trigger:
-  - platform: time
-    at: !input wk_tijd_dag
-  - platform: time
-    at: !input wk_tijd_nacht
-  - platform: time
-    at: !input kk_tijd_dag
-  - platform: time
-    at: !input kk_tijd_nacht
-  - platform: time
-    at: !input bv_tijd_dag
-  - platform: time
-    at: !input bv_tijd_pre_bed
-  - platform: time
-    at: !input bv_tijd_nacht
   - platform: state
-    entity_id: 
-      - !input airco_woonkamer
-      - !input airco_keuken
-      - !input airco_boven
-    attribute: current_temperature
+    entity_id: !input room_sensor
   - platform: state
-    entity_id: !input telefoons
-    from: 'home'
-    for:
-      minutes: !input afwezigheid_minuten
-  - platform: state
-    entity_id: !input telefoons
-    to: 'home'
-  - platform: state
-    entity_id: !input buiten_max_sensor
+    entity_id: !input presence_sensor
+  - platform: time
+    at: !input time_morning
+    id: transition_off
+  - platform: time
+    at: !input time_night
+    id: transition_off
+  - platform: time_pattern
+    minutes: "/15"
 
 action:
-  - variables:
-      buiten_sensor_var: !input buiten_sensor
-      buiten_max_sensor_var: !input buiten_max_sensor
-      omslag_koud: !input buiten_temp_verwarmen
-      omslag_warm: !input buiten_temp_koelen
-      telefoons_var: !input telefoons
-      
-      mh_b: !input marge_boven_heat
-      mh_o: !input marge_onder_heat
-      mc_b: !input marge_boven_cool
-      mc_o: !input marge_onder_cool
-      
-      # Woonkamer Inputs
-      airco_wk_var: !input airco_woonkamer
-      wk_t_dag: !input wk_tijd_dag
-      wk_t_nacht: !input wk_tijd_nacht
-      wk_u_h_heat: !input wk_uit_thuis_heat
-      wk_h_heat: !input wk_temp_home_heat
-      wk_u_h_cool: !input wk_uit_thuis_cool
-      wk_h_cool: !input wk_temp_home_cool
-      wk_u_a_heat: !input wk_uit_weg_heat
-      wk_a_heat: !input wk_temp_away_heat
-      wk_u_a_cool: !input wk_uit_weg_cool
-      wk_a_cool: !input wk_temp_away_cool
-      wk_u_n_heat: !input wk_uit_nacht_heat
-      wk_n_heat: !input wk_temp_night_heat
-      wk_u_n_cool: !input wk_uit_nacht_cool
-      wk_n_cool: !input wk_temp_night_cool
-      
-      # Keuken Inputs
-      airco_kk_var: !input airco_keuken
-      kk_t_dag: !input kk_tijd_dag
-      kk_t_nacht: !input kk_tijd_nacht
-      kk_u_h_heat: !input kk_uit_thuis_heat
-      kk_h_heat: !input kk_temp_home_heat
-      kk_u_h_cool: !input kk_uit_thuis_cool
-      kk_h_cool: !input kk_temp_home_cool
-      kk_u_a_heat: !input kk_uit_weg_heat
-      kk_a_heat: !input kk_temp_away_heat
-      kk_u_a_cool: !input kk_uit_weg_cool
-      kk_a_cool: !input kk_temp_away_cool
-      kk_u_n_heat: !input kk_uit_nacht_heat
-      kk_n_heat: !input kk_temp_night_heat
-      kk_u_n_cool: !input kk_uit_nacht_cool
-      kk_n_cool: !input kk_temp_night_cool
-      
-      # Boven Inputs
-      airco_bv_var: !input airco_boven
-      bv_t_dag: !input bv_tijd_dag
-      bv_t_pre: !input bv_tijd_pre_bed
-      bv_t_nacht: !input bv_tijd_nacht
-      bv_u_h_heat: !input bv_uit_thuis_heat
-      bv_h_heat: !input bv_temp_home_heat
-      bv_u_h_cool: !input bv_uit_thuis_cool
-      bv_h_cool: !input bv_temp_home_cool
-      bv_u_p_heat: !input bv_uit_pre_bed_heat
-      bv_p_heat: !input bv_temp_pre_bed_heat
-      bv_u_p_cool: !input bv_uit_pre_bed_cool
-      bv_p_cool: !input bv_temp_pre_bed_cool
-      bv_u_a_heat: !input bv_uit_weg_heat
-      bv_a_heat: !input bv_temp_away_heat
-      bv_u_a_cool: !input bv_uit_weg_cool
-      bv_a_cool: !input bv_temp_away_cool
-      bv_u_n_heat: !input bv_uit_nacht_heat
-      bv_n_heat: !input bv_temp_night_heat
-      bv_u_n_cool: !input bv_uit_nacht_cool
-      bv_n_cool: !input bv_temp_night_cool
-      
-      iemand_thuis: >
-        {{ expand(telefoons_var) | selectattr('state', 'eq', 'home') | list | length > 0 }}
-
-      is_dag_wk: >
-        {% set start = today_at(wk_t_dag) %}
-        {% set end = today_at(wk_t_nacht) %}
-        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
-        
-      is_dag_kk: >
-        {% set start = today_at(kk_t_dag) %}
-        {% set end = today_at(kk_t_nacht) %}
-        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
-        
-      is_dag_bv: >
-        {% set start = today_at(bv_t_dag) %}
-        {% set end = today_at(bv_t_nacht) %}
-        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
-        
-      is_pre_bed_bv: >
-        {% set start = today_at(bv_t_pre) %}
-        {% set end = today_at(bv_t_nacht) %}
-        {% if start < end %} {{ start <= now() < end }} {% else %} {{ now() >= start or now() < end }} {% endif %}
-      
-      buiten_temp: "{{ states(buiten_sensor_var) | float(20) }}"
-      buiten_max: "{{ states(buiten_max_sensor_var) | float(20) }}"
-      
-      gekozen_modus: >
-        {% if buiten_max >= omslag_warm %}
-          cool
-        {% elif buiten_max <= omslag_koud %}
-          heat
-        {% else %}
-          {% if buiten_temp <= omslag_koud %} heat
-          {% elif buiten_temp >= omslag_warm %} cool
-          {% else %} off {% endif %}
-        {% endif %}
-
-      doel_wk: >
-        {% if not iemand_thuis %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if wk_u_a_cool else wk_a_cool }} {% else %} {{ 'off' if wk_u_a_heat else wk_a_heat }} {% endif %}
-        {% elif not is_dag_wk %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if wk_u_n_cool else wk_n_cool }} {% else %} {{ 'off' if wk_u_n_heat else wk_n_heat }} {% endif %}
-        {% else %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if wk_u_h_cool else wk_h_cool }} {% else %} {{ 'off' if wk_u_h_heat else wk_h_heat }} {% endif %}
-        {% endif %}
-        
-      doel_kk: >
-        {% if not iemand_thuis %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if kk_u_a_cool else kk_a_cool }} {% else %} {{ 'off' if kk_u_a_heat else kk_a_heat }} {% endif %}
-        {% elif not is_dag_kk %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if kk_u_n_cool else kk_n_cool }} {% else %} {{ 'off' if kk_u_n_heat else kk_n_heat }} {% endif %}
-        {% else %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if kk_u_h_cool else kk_h_cool }} {% else %} {{ 'off' if kk_u_h_heat else kk_h_heat }} {% endif %}
-        {% endif %}
-        
-      doel_bv: >
-        {% if not iemand_thuis %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_a_cool else bv_a_cool }} {% else %} {{ 'off' if bv_u_a_heat else bv_a_heat }} {% endif %}
-        {% elif is_pre_bed_bv %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_p_cool else bv_p_cool }} {% else %} {{ 'off' if bv_u_p_heat else bv_p_heat }} {% endif %}
-        {% elif not is_dag_bv %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_n_cool else bv_n_cool }} {% else %} {{ 'off' if bv_u_n_heat else bv_n_heat }} {% endif %}
-        {% else %}
-          {% if gekozen_modus == 'cool' %} {{ 'off' if bv_u_h_cool else bv_h_cool }} {% else %} {{ 'off' if bv_u_h_heat else bv_h_heat }} {% endif %}
-        {% endif %}
-
-      huidig_wk: "{{ state_attr(airco_wk_var, 'current_temperature') | float(20) }}"
-      huidig_kk: "{{ state_attr(airco_kk_var, 'current_temperature') | float(20) }}"
-      huidig_bv: "{{ state_attr(airco_bv_var, 'current_temperature') | float(20) }}"
-
   - choose:
+      # Als de trigger de start van de ochtend of nacht is -> Direct uit schakelen
       - conditions:
-          - condition: template
-            value_template: "{{ gekozen_modus == 'off' }}"
+          - condition: trigger
+            id: transition_off
         sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: 
-                - !input airco_woonkamer
-                - !input airco_keuken
-                - !input airco_boven
-            data:
-              hvac_mode: "off"
-              
+          - action: climate.turn_off
+            target: { entity_id: !input climate_entity }
+
     default:
-      # --- BEOORDELING WOONKAMER ---
       - choose:
+          # 1. Te koud ÉN het is buiten ook te koud -> Actief Verwarmen
           - conditions:
               - condition: template
-                value_template: "{{ doel_wk == 'off' }}"
+                value_template: '{{ room_temp <= lower_limit and outside_temp < active_target }}'
             sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_woonkamer
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_wk >= (doel_wk | float(20) + mh_b | float(1)) }}
-                  {% else %}
-                    {{ huidig_wk <= (doel_wk | float(20) - mc_o | float(1)) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_woonkamer
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_wk <= (doel_wk | float(20) - mh_o | float(1)) }}
-                  {% else %}
-                    {{ huidig_wk >= (doel_wk | float(20) + mc_b | float(1)) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input airco_woonkamer
-                data:
-                  temperature: "{{ doel_wk }}"
-                  hvac_mode: "{{ gekozen_modus }}"
+              - action: climate.set_temperature
+                target: { entity_id: !input climate_entity }
+                data: { temperature: '{{ active_target }}', hvac_mode: heat }
 
-      # --- BEOORDELING KEUKEN ---
-      - choose:
+          # 2. Te warm ÉN het is buiten ook te warm -> Actief Koelen
           - conditions:
               - condition: template
-                value_template: "{{ doel_kk == 'off' }}"
+                value_template: '{{ room_temp >= upper_limit and outside_temp > active_target }}'
             sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_keuken
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_kk >= (doel_kk | float(20) + mh_b | float(1)) }}
-                  {% else %}
-                    {{ huidig_kk <= (doel_kk | float(20) - mc_o | float(1)) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_keuken
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_kk <= (doel_kk | float(20) - mh_o | float(1)) }}
-                  {% else %}
-                    {{ huidig_kk >= (doel_kk | float(20) + mc_b | float(1)) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input airco_keuken
-                data:
-                  temperature: "{{ doel_kk }}"
-                  hvac_mode: "{{ gekozen_modus }}"
+              - action: climate.set_temperature
+                target: { entity_id: !input climate_entity }
+                data: { temperature: '{{ active_target }}', hvac_mode: cool }
 
-      # --- BEOORDELING BOVEN ---
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ doel_bv == 'off' }}"
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_boven
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_bv >= (doel_bv | float(20) + mh_b | float(1)) }}
-                  {% else %}
-                    {{ huidig_bv <= (doel_bv | float(20) - mc_o | float(1)) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_hvac_mode
-                target:
-                  entity_id: !input airco_boven
-                data:
-                  hvac_mode: "off"
-          - conditions:
-              - condition: template
-                value_template: >
-                  {% if gekozen_modus == 'heat' %}
-                    {{ huidig_bv <= (doel_bv | float(20) - mh_o | float(1)) }}
-                  {% else %}
-                    {{ huidig_bv >= (doel_bv | float(20) + mc_b | float(1)) }}
-                  {% endif %}
-            sequence:
-              - service: climate.set_temperature
-                target:
-                  entity_id: !input airco_boven
-                data:
-                  temperature: "{{ doel_bv }}"
-                  hvac_mode: "{{ gekozen_modus }}"
+        # 3. Al het andere (Binnen de bandbreedte OF natuurlijke afkoeling/opwarming mogelijk) -> Uit
+        default:
+          - action: climate.turn_off
+            target: { entity_id: !input climate_entity }
