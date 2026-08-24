@@ -1,6 +1,6 @@
 blueprint:
-  name: "Eenvoudige Bandbreedte Klimaatregeling (Multi-Presence)"
-  description: "Aansturing op vaste doelen (Thuis/Weg/Nacht), 2.5°C schakelband, overshoot blokkade en multi-device aanwezigheid."
+  name: "Eenvoudige Bandbreedte Klimaatregeling (Instelbare Marges)"
+  description: "Aansturing op vaste doelen (Thuis/Weg/Nacht), instelbare boven/onder marge, overshoot blokkade en multi-device aanwezigheid."
   domain: automation
   input:
     climate_entity:
@@ -13,7 +13,7 @@ blueprint:
       name: "Buiten Temperatuur Sensor"
       selector: { entity: { domain: sensor, device_class: temperature } }
     
-    # --- AANWEZIGHEID (NU MEERDERE MOGELIJK) ---
+    # --- AANWEZIGHEID ---
     presence_sensors:
       name: "Aanwezigheid (Selecteer 1 of meerdere telefoons)"
       description: "Laat leeg als je geen wegsignaal gebruikt. Selecteer je TP-link telefoons. Zodra er 1 thuis is, is de status 'Thuis'."
@@ -37,6 +37,18 @@ blueprint:
       default: 19.0
       selector: { number: { min: 15, max: 24, step: 0.5, unit_of_measurement: "°C" } }
 
+    # --- MARGES ---
+    margin_upper:
+      name: "Boven Marge (Koelen)"
+      description: "Aantal graden boven het doel voordat de airco gaat koelen."
+      default: 2.5
+      selector: { number: { min: 0.5, max: 5.0, step: 0.5, unit_of_measurement: "°C" } }
+    margin_lower:
+      name: "Onder Marge (Verwarmen)"
+      description: "Aantal graden onder het doel voordat de airco gaat verwarmen."
+      default: 2.5
+      selector: { number: { min: 0.5, max: 5.0, step: 0.5, unit_of_measurement: "°C" } }
+
     # --- TIJDSVAKKEN ---
     time_morning:
       name: "Start Ochtend (Schakelt airco uit en start dagritme)"
@@ -57,11 +69,13 @@ variables:
   t_home: !input target_home
   t_away: !input target_away
   t_night: !input target_night
+  m_upper: !input margin_upper
+  m_lower: !input margin_lower
 
   room_temp: '{{ states(room_sensor) | float(21) }}'
   outside_temp: '{{ states(outside_sensor) | float(21) }}'
   
-  # Bepaal of we 'thuis' of 'weg' zijn (Kijkt of minimaal 1 geselecteerd apparaat thuis is)
+  # Bepaal of we 'thuis' of 'weg' zijn
   is_present: >
     {% if presence_entities | length == 0 %}
       True
@@ -85,9 +99,9 @@ variables:
       {{ t_home }}
     {% endif %}
 
-  # De grenzen (2.5 graden marge)
-  lower_limit: '{{ active_target - 2.5 }}'
-  upper_limit: '{{ active_target + 2.5 }}'
+  # De grenzen berekenen op basis van de ingestelde marges
+  lower_limit: '{{ active_target - m_lower }}'
+  upper_limit: '{{ active_target + m_upper }}'
 
 trigger:
   - platform: state
