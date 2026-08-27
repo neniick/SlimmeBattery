@@ -1,6 +1,6 @@
 blueprint:
-  name: "Dual Setpoint Klimaatregeling (Met Herstel-doel)"
-  description: "Onafhankelijke grenzen met een Recovery Target. Trekt de kamer na activatie comfortabel naar het midden en voorkomt pendelen."
+  name: "Dual Setpoint Klimaatregeling (Met Herstel-doel & Verwarmingsblokkade)"
+  description: "Onafhankelijke grenzen met een Recovery Target. Bevat een blokkade op basis van de voorspelde maximumtemperatuur om ochtend-pendelen te voorkomen."
   domain: automation
   input:
     climate_entity:
@@ -22,6 +22,18 @@ blueprint:
         entity: 
           domain: [device_tracker, binary_sensor]
           multiple: true
+
+    # --- VERWARMINGSBLOKKADE (NIEUW) ---
+    predicted_max_sensor:
+      name: "Opgeslagen Max Temperatuur (Optioneel)"
+      description: "Selecteer de Input Number helper waarin je om 23:00 de voorspelling hebt opgeslagen."
+      default: ""
+      selector: { entity: { domain: input_number } }
+    block_heat_threshold:
+      name: "Blokkeer verwarmen als max temp HOGER is dan:"
+      description: "Als de voorspelde temperatuur boven deze grens ligt, blijft de verwarming 's ochtends uit."
+      default: 21.0
+      selector: { number: { min: 15, max: 30, step: 0.5, unit_of_measurement: "°C" } }
 
     # --- INSTELLINGEN THUIS ---
     heat_home:
@@ -83,6 +95,17 @@ variables:
   outside_sensor: !input outside_sensor
   presence_entities: !input presence_sensors
   climate_entity: !input climate_entity
+  
+  # Verwarmingsblokkade variabelen
+  pred_max_entity: !input predicted_max_sensor
+  heat_threshold: !input block_heat_threshold
+  predicted_max: >
+    {% if pred_max_entity != "" and states(pred_max_entity) != 'unknown' %}
+      {{ states(pred_max_entity) | float(0) }}
+    {% else %}
+      0
+    {% endif %}
+  block_heating: '{{ pred_max_entity != "" and predicted_max >= heat_threshold }}'
   
   # Inputs in variabelen laden
   h_home: !input heat_home
@@ -166,10 +189,10 @@ action:
 
     default:
       - choose:
-          # 2. Te koud ÉN het is buiten ook koud -> Actief Verwarmen
+          # 2. Te koud ÉN het is buiten ook koud ÉN verwarming is niet geblokkeerd -> Actief Verwarmen
           - conditions:
               - condition: template
-                value_template: '{{ room_temp < active_heat_limit and outside_temp < active_target }}'
+                value_template: '{{ room_temp < active_heat_limit and outside_temp < active_target and not block_heating }}'
             sequence:
               - action: climate.set_temperature
                 target: { entity_id: !input climate_entity }
@@ -200,5 +223,5 @@ action:
               - action: climate.turn_off
                 target: { entity_id: !input climate_entity }
 
-        # Als er niets van het bovenstaande aan de hand is, doet hij niets 
-        # (waardoor de airco rustig kan blijven draaien totdat doel bereikt is, of rustig uit kan blijven).
+        # Als er niets van het bovenstaande aan de hand is, doet hij niets.
+        default: []
