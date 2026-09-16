@@ -1,10 +1,11 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Hardware Limit Fix)"
+  name: "Nul op de Meter - Vanaf Nul (Hardware Limit Fix & Verkoopblokkade)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
     - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (Hardware Lock).
     - BEVEILIGING: Zet bij de 'None' (Idle) status ook actief de vermogens naar 0W.
     - BEVEILIGING: Leest live de integratie-limieten uit om range-crashes te voorkomen.
+    - BEVEILIGING: Blokkeert verkoop naar net bij slechte zonne-voorspelling morgen.
     - Fix: Native Typing 'None' crash volledig geëlimineerd.
     - Boterzachte demping voor een perfecte 0-meting.
   domain: automation
@@ -97,6 +98,11 @@ blueprint:
       selector: { number: { min: 0, max: 100, step: 5, unit_of_measurement: "%" } }
 
     # ================= Handels Regels (Verkopen) =================
+    block_sell_bad_solar:
+      name: "Regel 4: Verkoop blokkeren bij slechte dag morgen"
+      description: "Blokkeer verkoop aan het net (GridDischarge) zodra de voorspelling voor morgen onder de drempel 'Slechte dag' valt."
+      default: true
+      selector: { boolean: {} }
     trade_trigger_soc:
       name: "Regel 4: Minimum SOC om te mogen handelen (%)"
       default: 90
@@ -169,6 +175,7 @@ variables:
   v_target_base: !input target_soc_base
   v_target_prep: !input target_soc_prep
   
+  v_block_sell: !input block_sell_bad_solar
   v_trade_trigger: !input trade_trigger_soc
   v_trade_bottom: !input trade_bottom_soc
   
@@ -208,8 +215,9 @@ action:
       is_sunny_today: "{{ solar_today >= (v_good_solar | float(15.0)) }}"
       is_bad_tomorrow: "{{ solar_tomorrow <= (v_bad_solar | float(7.0)) }}"
       
+      # Als morgen slecht is, geldt altijd de buffer (ook als vandaag bewolkt was)
       active_target_soc: >-
-        {% if is_sunny_today | bool(false) and is_bad_tomorrow | bool(false) %}
+        {% if is_bad_tomorrow | bool(false) %}
           {{ v_target_prep | float(80.0) }}
         {% else %}
           {{ v_target_base | float(50.0) }}
@@ -273,7 +281,8 @@ action:
       dynamic_trade_bottom: "{{ [v_trade_bottom | float(50.0), active_target_soc | float(50.0)] | max }}"
            
       should_sell_grid: >-
-        {{ soc >= (v_trade_trigger | float(90.0)) 
+        {{ not (v_block_sell | bool(true) and is_bad_tomorrow | bool(false))
+           and soc >= (v_trade_trigger | float(90.0)) 
            and is_most_expensive_hour | bool(false) 
            and price >= (v_min_sell | float(0.35)) 
            and soc > (dynamic_trade_bottom | float(50.0)) }}
