@@ -18,12 +18,12 @@ blueprint:
       selector:
         select:
           options:
-            - label: "Elke 2 seconden (Zeer agressief)"
-              value: "/2"
-            - label: "Elke 3 seconden (Snel)"
+            - label: "Elke 3 seconden (Zeer agressief)"
               value: "/3"
-            - label: "Elke 5 seconden"
+            - label: "Elke 5 seconden (Snel)"
               value: "/5"
+            - label: "Elke 6 seconden"
+              value: "/6"
             - label: "Elke 10 seconden (Stabiel - Aanbevolen)"
               value: "/10"
             - label: "Elke 15 seconden (Rustig)"
