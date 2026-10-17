@@ -297,7 +297,7 @@ action:
       target_mode: >-
         {% if should_buy_grid | bool(false) %}GridCharge
         {% elif should_sell_grid | bool(false) %}GridDischarge
-        {% elif real_demand > safe_deadband and soc > 10.0 %}HouseDischarge
+        {% elif real_demand > safe_deadband and soc > 8.0 %}HouseDischarge
         {% elif real_demand < (0.0 - safe_deadband) and soc < 100.0 %}HouseCharge
         {% else %}Idle{% endif %}
 
