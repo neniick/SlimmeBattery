@@ -1,11 +1,12 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Hardware Limit Fix & Verkoopblokkade)"
+  name: "Nul op de Meter - Vanaf Nul (Hardware Limit Fix, Verkoopblokkade & Inkoopmarge)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
     - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (Hardware Lock).
     - BEVEILIGING: Zet bij de 'None' (Idle) status ook actief de vermogens naar 0W.
     - BEVEILIGING: Leest live de integratie-limieten uit om range-crashes te voorkomen.
     - BEVEILIGING: Blokkeert verkoop naar net bij slechte zonne-voorspelling morgen.
+    - NIEUW: Instelbare marge (€ en %) boven de laagste prijs om ruimer in te kopen.
     - Fix: Native Typing 'None' crash volledig geëlimineerd.
     - Boterzachte demping voor een perfecte 0-meting.
   domain: automation
@@ -64,7 +65,7 @@ blueprint:
       selector: { text: {} }
     price_lookahead_hours:
       name: "Prijs: Hoeveel uur vooruit kijken?"
-      default: 12
+      default: 8
       selector: { number: { min: 1, max: 24, step: 1, unit_of_measurement: "uur" } }
     sensor_solar_remaining_today:
       name: "Forecast.Solar - Resterende productie VANDAAG (kWh)"
@@ -117,6 +118,16 @@ blueprint:
       name: "Prijs: Maximale Inkoopprijs (€/kWh)"
       default: 0.25
       selector: { number: { min: 0.00, max: 0.50, step: 0.01, unit_of_measurement: "€" } }
+    buy_price_margin_eur:
+      name: "Inkoopmarge: Bedrag boven laagste prijs (€/kWh)"
+      description: "Laad ook bij als de huidige prijs binnen dit bedrag boven de laagste prijs ligt (bijv. 0.02 = 2 cent). Zet op 0 om uit te schakelen."
+      default: 0.02
+      selector: { number: { min: 0.00, max: 0.20, step: 0.005, unit_of_measurement: "€" } }
+    buy_price_margin_pct:
+      name: "Inkoopmarge: Percentage boven laagste prijs (%)"
+      description: "Laad ook bij als de huidige prijs binnen dit percentage boven de laagste prijs ligt (bijv. 5 = 5%). Zet op 0 om uit te schakelen."
+      default: 0
+      selector: { number: { min: 0, max: 50, step: 1, unit_of_measurement: "%" } }
     min_discharge_price:
       name: "Prijs: Minimale Verkoopprijs (€/kWh)"
       default: 0.35
@@ -180,218 +191,12 @@ variables:
   v_trade_bottom: !input trade_bottom_soc
   
   v_max_buy: !input max_charge_price
+  v_buy_margin_eur: !input buy_price_margin_eur
+  v_buy_margin_pct: !input buy_price_margin_pct
   v_min_sell: !input min_discharge_price
   
   v_deadband: !input grid_deadband_w
   v_pwr_hc: !input power_house_charge
   v_pwr_hd: !input power_house_discharge
   v_pwr_gc: !input power_grid_charge
-  v_pwr_gd: !input power_grid_discharge
-  
-  v_sel_mode: !input select_force_mode
-  v_num_c: !input number_charge_power
-  v_num_d: !input number_discharge_power
-
-trigger:
-  - platform: time_pattern
-    seconds: !input update_interval
-
-action:
-  - variables:
-      soc: "{{ states(v_soc) | float(0.0) }}"
-      grid_w: "{{ states(v_grid) | float(0.0) }}"
-      price: "{{ states(v_price) | float(99.0) }}"
-      
-      cur_c: "{{ states(v_num_c) | float(0.0) if states(v_sel_mode) == 'Solis RC Force Battery Charge' else 0.0 }}"
-      cur_d: "{{ states(v_num_d) | float(0.0) if states(v_sel_mode) == 'Solis RC Force Battery Discharge' else 0.0 }}"
-      real_demand: "{{ grid_w + cur_d - cur_c }}"
-
-      hour: "{{ now().hour | int(0) }}"
-      raw_today: "{{ states(v_solar_today) | float(0.0) }}"
-      raw_tomorrow: "{{ states(v_solar_tomorrow) | float(0.0) }}"
-      solar_today: "{{ raw_tomorrow if (hour < 5 and raw_today < 0.1) else raw_today }}"
-      solar_tomorrow: "{{ raw_tomorrow }}"
-
-      is_sunny_today: "{{ solar_today >= (v_good_solar | float(15.0)) }}"
-      is_bad_tomorrow: "{{ solar_tomorrow <= (v_bad_solar | float(7.0)) }}"
-      
-      # Als morgen slecht is, geldt altijd de buffer (ook als vandaag bewolkt was)
-      active_target_soc: >-
-        {% if is_bad_tomorrow | bool(false) %}
-          {{ v_target_prep | float(80.0) }}
-        {% else %}
-          {{ v_target_base | float(50.0) }}
-        {% endif %}
-
-      current_kwh: "{{ (soc / 100.0) * (v_cap | float(25.0)) }}"
-      target_kwh: "{{ ((active_target_soc | float(50.0)) / 100.0) * (v_cap | float(25.0)) }}"
-      
-      safe_solar: "{{ solar_today * 0.8 }}"
-      shortfall_kwh: "{{ [(target_kwh - (current_kwh + safe_solar)), 0.0] | max }}"
-      needs_charge: "{{ (shortfall_kwh | float(0.0)) > 0.5 }}"
-
-      # Tijdvak Logica
-      c_start: "{{ v_c_start | int(10) }}"
-      c_end: "{{ v_c_end | int(16) }}"
-      in_charge_window: "{{ hour >= c_start and hour <= c_end }}"
-      lookahead: "{{ v_lookahead | int(12) }}"
-      
-      min_buy_price: >-
-        {% set ns = namespace(p=[]) %}
-        {% set h = now().hour | int(0) %}
-        {% set start = v_c_start | int(10) %}
-        {% set end = v_c_end | int(16) %}
-        {% if h >= start and h <= end %}
-          {% set ns.p = ns.p + [price] %}
-        {% endif %}
-        {% set l = v_lookahead | int(12) %}
-        {% for i in range(1, l + 1) %}
-          {% set future_hour = (h + i) % 24 %}
-          {% if future_hour >= start and future_hour <= end %}
-            {% set s = states(v_prefix ~ i) %}
-            {% if s not in ['unknown','unavailable','none',''] %}
-              {% set ns.p = ns.p + [s | float(99.0)] %}
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-        {{ ns.p | min if ns.p | length > 0 else 99.0 }}
-      
-      is_cheapest_buy_hour: "{{ in_charge_window | bool(false) and price <= ((min_buy_price | float(99.0)) + 0.0001) }}"
-
-      # Verkoop analyse
-      max_sell_price: >-
-        {% set ns = namespace(p=[price]) %}
-        {% set l = v_lookahead | int(12) %}
-        {% for i in range(1, l + 1) %}
-          {% set s = states(v_prefix ~ i) %}
-          {% if s not in ['unknown','unavailable','none',''] %}
-            {% set ns.p = ns.p + [s | float(0.0)] %}
-          {% endif %}
-        {% endfor %}
-        {{ ns.p | max }}
-        
-      is_most_expensive_hour: "{{ price >= ((max_sell_price | float(0.0)) - 0.0001) }}"
-
-      # Beslissingen
-      should_buy_grid: >-
-        {{ needs_charge | bool(false) 
-           and is_cheapest_buy_hour | bool(false) 
-           and price <= (v_max_buy | float(0.25)) }}
-
-      dynamic_trade_bottom: "{{ [v_trade_bottom | float(50.0), active_target_soc | float(50.0)] | max }}"
-           
-      should_sell_grid: >-
-        {{ not (v_block_sell | bool(true) and is_bad_tomorrow | bool(false))
-           and soc >= (v_trade_trigger | float(90.0)) 
-           and is_most_expensive_hour | bool(false) 
-           and price >= (v_min_sell | float(0.35)) 
-           and soc > (dynamic_trade_bottom | float(50.0)) }}
-
-  - variables:
-      safe_deadband: "{{ v_deadband | float(300.0) }}"
-      
-      # Vraag de absolute hardware-limieten van de integratie op
-      hw_max_c: "{{ state_attr(v_num_c, 'max') | float(10000.0) }}"
-      hw_max_d: "{{ state_attr(v_num_d, 'max') | float(10000.0) }}"
-      
-      target_mode: >-
-        {% if should_buy_grid | bool(false) %}GridCharge
-        {% elif should_sell_grid | bool(false) %}GridDischarge
-        {% elif real_demand > safe_deadband and soc > 8.0 %}HouseDischarge
-        {% elif real_demand < (0.0 - safe_deadband) and soc < 100.0 %}HouseCharge
-        {% else %}Idle{% endif %}
-
-      raw_target_power: >-
-        {% set p = 0.0 %}
-        {% if target_mode == 'GridCharge' %}
-          {% set p = v_pwr_gc | float(4000.0) %}
-        {% elif target_mode == 'GridDischarge' %}
-          {% set p = v_pwr_gd | float(4000.0) %}
-        {% elif target_mode == 'HouseDischarge' %}
-          {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
-          {% set pwr = [raw_new | round(0) | float(0.0), 0.0] | max %}
-          {% set p = [pwr, (v_pwr_hd | float(6000.0))] | min %}
-        {% elif target_mode == 'HouseCharge' %}
-          {% set raw_new = (cur_d - cur_c) + (grid_w * (v_damping | float(0.8))) %}
-          {% set pwr = [(raw_new * -1) | round(0) | float(0.0), 0.0] | max %}
-          {% set p = [pwr, (v_pwr_hc | float(8000.0))] | min %}
-        {% endif %}
-        {{ p }}
-        
-      # De veilige target-power knipt de waarde af op de max van de omvormer
-      target_power: >-
-        {% if 'Discharge' in target_mode %}
-          {{ [raw_target_power | float(0.0), hw_max_d | float(10000.0)] | min }}
-        {% elif 'Charge' in target_mode %}
-          {{ [raw_target_power | float(0.0), hw_max_c | float(10000.0)] | min }}
-        {% else %}
-          0.0
-        {% endif %}
-
-      cur_simple: >-
-        {% set s = states(v_sel_mode) | string %}
-        {% if 'Discharge' in s %}Discharge
-        {% elif 'Charge' in s %}Charge
-        {% else %}Idle{% endif %}
-        
-      tgt_simple: >-
-        {% set t = target_mode | string %}
-        {% if 'Discharge' in t %}Discharge
-        {% elif 'Charge' in t %}Charge
-        {% else %}Idle{% endif %}
-
-      transition_lock: >-
-        {{ 'true' if (cur_simple == 'Charge' and tgt_simple == 'Discharge') or (cur_simple == 'Discharge' and tgt_simple == 'Charge') else 'false' }}
-
-      exec_mode: >-
-        {% if transition_lock == 'true' %}Idle
-        {% else %}{{ tgt_simple }}{% endif %}
-
-  - service: system_log.write
-    data:
-      level: info
-      message: >
-        [Nul-op-de-meter V2] Uur={{ hour }}. Mode={{ target_mode }}, Power={{ target_power }}W (HW Limiet={{ hw_max_d if 'Discharge' in target_mode else hw_max_c }}W).
-        Lock Active: {{ 'YES' if transition_lock == 'true' else 'NO' }}.
-
-  - choose:
-      - conditions: "{{ exec_mode == 'Charge' }}"
-        sequence:
-          - service: number.set_value
-            target: { entity_id: !input number_charge_power }
-            data:
-              value: "{{ target_power | float(0.0) }}"
-          - delay: "00:00:01"
-          - service: select.select_option
-            target: { entity_id: !input select_force_mode }
-            data:
-              option: "Solis RC Force Battery Charge"
-            
-      - conditions: "{{ exec_mode == 'Discharge' }}"
-        sequence:
-          - service: number.set_value
-            target: { entity_id: !input number_discharge_power }
-            data:
-              value: "{{ target_power | float(0.0) }}"
-          - delay: "00:00:01"
-          - service: select.select_option
-            target: { entity_id: !input select_force_mode }
-            data:
-              option: "Solis RC Force Battery Discharge"
-            
-    default:
-      - service: number.set_value
-        target: { entity_id: !input number_charge_power }
-        data:
-          value: 0.0
-      - service: number.set_value
-        target: { entity_id: !input number_discharge_power }
-        data:
-          value: 0.0
-      - delay: "00:00:01"
-      - service: select.select_option
-        target: { entity_id: !input select_force_mode }
-        data:
-          option: "None"
-
-mode: single
+  v_pwr_gd: !input power_grid
