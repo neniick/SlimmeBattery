@@ -433,4 +433,51 @@ action:
       level: info
       message: >
         [Nul-op-de-meter V2] Uur={{ hour }}. Mode={{ target_mode }}, Power={{ target_power }}W (HW Limiet={{ hw_max_d if 'Discharge' in target_mode else hw_max_c }}W).
-        Lock Active: {{ 'YES' if transition_lock == 'true' else 'NO'
+        Lock Active: {{ 'YES' if transition_lock == 'true' else 'NO' }}.
+
+  - choose:
+      - conditions: "{{ exec_mode == 'Charge' }}"
+        sequence:
+          - service: number.set_value
+            target:
+              entity_id: !input number_charge_power
+            data:
+              value: "{{ target_power | float(0.0) }}"
+          - delay: "00:00:01"
+          - service: select.select_option
+            target:
+              entity_id: !input select_force_mode
+            data:
+              option: "Solis RC Force Battery Charge"
+      - conditions: "{{ exec_mode == 'Discharge' }}"
+        sequence:
+          - service: number.set_value
+            target:
+              entity_id: !input number_discharge_power
+            data:
+              value: "{{ target_power | float(0.0) }}"
+          - delay: "00:00:01"
+          - service: select.select_option
+            target:
+              entity_id: !input select_force_mode
+            data:
+              option: "Solis RC Force Battery Discharge"
+    default:
+      - service: number.set_value
+        target:
+          entity_id: !input number_charge_power
+        data:
+          value: 0.0
+      - service: number.set_value
+        target:
+          entity_id: !input number_discharge_power
+        data:
+          value: 0.0
+      - delay: "00:00:01"
+      - service: select.select_option
+        target:
+          entity_id: !input select_force_mode
+        data:
+          option: "None"
+
+mode: single
