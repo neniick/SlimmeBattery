@@ -1,14 +1,14 @@
 blueprint:
-  name: "Nul op de Meter - Vanaf Nul (Hardware Limit Fix, Verkoopblokkade & Inkoopmarge)"
+  name: "Nul op de Meter - Vanaf Nul (Zonneplan Forecast, 24/7 Laden & Marge)"
   description: >
     Kogelvrije, wiskundig perfecte logica.
     - BEVEILIGING: Voorkomt directe wisseling tussen laden en ontladen (Hardware Lock).
     - BEVEILIGING: Zet bij de 'None' (Idle) status ook actief de vermogens naar 0W.
     - BEVEILIGING: Leest live de integratie-limieten uit om range-crashes te voorkomen.
     - BEVEILIGING: Blokkeert verkoop naar net bij slechte zonne-voorspelling morgen.
-    - NIEUW: Instelbare marge (€ en %) boven de laagste prijs om ruimer in te kopen.
-    - Fix: Native Typing 'None' crash volledig geëlimineerd.
-    - Boterzachte demping voor een perfecte 0-meting.
+    - Leest het Zonneplan 'forecast'-attribuut uit met instelbare vooruitkijk-horizon.
+    - Net-laden is 24/7 toegestaan zonder tijdvakbeperking.
+    - Instelbare marge (€ en %) boven de laagste prijs om ruimer in te kopen.
   domain: automation
   input:
     update_interval:
@@ -37,24 +37,6 @@ blueprint:
           max: 1.0
           step: 0.05
           mode: slider
-    time_charge_start:
-      name: "Tijdvak: Start Net-Laden (Uur)"
-      description: "Vanaf hoe laat mag de accu overdag stroom van het net inkopen? (Bijv: 10 = 10:00)"
-      default: 10
-      selector:
-        number:
-          min: 0
-          max: 23
-          step: 1
-    time_charge_end:
-      name: "Tijdvak: Eind Net-Laden (Uur)"
-      description: "Tot hoe laat mag de accu overdag stroom inkopen? (Bijv: 16 = 16:59)"
-      default: 16
-      selector:
-        number:
-          min: 0
-          max: 23
-          step: 1
     sensor_soc:
       name: "Batterij SOC (%)"
       selector:
@@ -67,21 +49,18 @@ blueprint:
           domain: sensor
     sensor_price_value:
       name: "Zonneplan Huidige Prijs (€/kWh)"
+      description: "Selecteer sensor.zonneplan_current_electricity_tariff (bevat zowel de huidige prijs als het 'forecast' attribuut)"
       selector:
         entity:
           domain: sensor
-    forecast_sensor_prefix:
-      name: "Zonneplan Forecast Prefix"
-      default: "sensor.zonneplan_forcast_tariff_"
-      selector:
-        text: {}
     price_lookahead_hours:
       name: "Prijs: Hoeveel uur vooruit kijken?"
-      default: 8
+      description: "Bepaalt hoeveel uur vooruit in het Zonneplan forecast-attribuut wordt gekeken voor de laagste en hoogste prijs."
+      default: 10
       selector:
         number:
           min: 1
-          max: 24
+          max: 36
           step: 1
           unit_of_measurement: "uur"
     sensor_solar_remaining_today:
@@ -175,7 +154,7 @@ blueprint:
     buy_price_margin_eur:
       name: "Inkoopmarge: Bedrag boven laagste prijs (€/kWh)"
       description: "Laad ook bij als de huidige prijs binnen dit bedrag boven de laagste prijs ligt (bijv. 0.02 = 2 cent). Zet op 0 om uit te schakelen."
-      default: 0.02
+      default: 0.00
       selector:
         number:
           min: 0.00
@@ -266,13 +245,10 @@ variables:
   v_soc: !input sensor_soc
   v_grid: !input sensor_house_power
   v_price: !input sensor_price_value
-  v_prefix: !input forecast_sensor_prefix
   v_lookahead: !input price_lookahead_hours
   v_solar_today: !input sensor_solar_remaining_today
   v_solar_tomorrow: !input sensor_solar_forecast_tomorrow
   v_damping: !input damping_factor
-  v_c_start: !input time_charge_start
-  v_c_end: !input time_charge_end
   v_cap: !input battery_capacity_kwh
   v_good_solar: !input threshold_good_solar
   v_bad_solar: !input threshold_bad_solar
@@ -324,28 +300,31 @@ action:
       safe_solar: "{{ solar_today * 0.8 }}"
       shortfall_kwh: "{{ [(target_kwh - (current_kwh + safe_solar)), 0.0] | max }}"
       needs_charge: "{{ (shortfall_kwh | float(0.0)) > 0.5 }}"
-      c_start: "{{ v_c_start | int(10) }}"
-      c_end: "{{ v_c_end | int(16) }}"
-      in_charge_window: "{{ hour >= c_start and hour <= c_end }}"
-      lookahead: "{{ v_lookahead | int(8) }}"
+      lookahead: "{{ v_lookahead | int(10) }}"
       min_buy_price: >-
         {% set ns = namespace(p=[]) %}
-        {% set h = now().hour | int(0) %}
-        {% set start = v_c_start | int(10) %}
-        {% set end = v_c_end | int(16) %}
-        {% if h >= start and h <= end %}
+        {% if price < 90.0 %}
           {% set ns.p = ns.p + [price] %}
         {% endif %}
-        {% set l = v_lookahead | int(8) %}
-        {% for i in range(1, l + 1) %}
-          {% set future_hour = (h + i) % 24 %}
-          {% if future_hour >= start and future_hour <= end %}
-            {% set s = states(v_prefix ~ i) %}
-            {% if s not in ['unknown','unavailable','none',''] %}
-              {% set ns.p = ns.p + [s | float(99.0)] %}
+        {% set l = v_lookahead | int(10) %}
+        {% set now_hour = now().replace(minute=0, second=0, microsecond=0) %}
+        {% set max_dt = now_hour + timedelta(hours=l) %}
+        {% set forecast_list = state_attr(v_price, 'forecast') %}
+        {% if forecast_list is iterable and forecast_list is not string and forecast_list is not mapping %}
+          {% for item in forecast_list %}
+            {% if item is mapping %}
+              {% set raw_ts = item.get('datetime') or item.get('start') or item.get('timestamp') %}
+              {% set raw_val = item.get('price') if item.get('price') is not none else item.get('electricity_price') %}
+              {% set dt = raw_ts | as_datetime(none) %}
+              {% if dt is not none and raw_val is not none %}
+                {% set dt_local = dt | as_local %}
+                {% if dt_local >= now_hour and dt_local < max_dt %}
+                  {% set ns.p = ns.p + [raw_val | float(99.0)] %}
+                {% endif %}
+              {% endif %}
             {% endif %}
-          {% endif %}
-        {% endfor %}
+          {% endfor %}
+        {% endif %}
         {{ ns.p | min if ns.p | length > 0 else 99.0 }}
       allowed_buy_margin: >-
         {% set min_p = min_buy_price | float(99.0) %}
@@ -353,29 +332,41 @@ action:
         {% set m_pct = (min_p | abs) * ((v_buy_margin_pct | float(0.0)) / 100.0) %}
         {{ [m_eur, m_pct] | max + 0.0001 }}
       is_cheapest_buy_hour: >-
-        {{ in_charge_window | bool(false) 
+        {{ price < 90.0
            and price <= ((min_buy_price | float(99.0)) + (allowed_buy_margin | float(0.0001))) }}
       max_sell_price: >-
-        {% set ns = namespace(p=[price]) %}
-        {% set l = v_lookahead | int(8) %}
-        {% for i in range(1, l + 1) %}
-          {% set s = states(v_prefix ~ i) %}
-          {% if s not in ['unknown','unavailable','none',''] %}
-            {% set ns.p = ns.p + [s | float(0.0)] %}
-          {% endif %}
-        {% endfor %}
-        {{ ns.p | max }}
-      is_most_expensive_hour: "{{ price >= ((max_sell_price | float(0.0)) - 0.0001) }}"
+        {% set ns = namespace(p=[price] if price < 90.0 else []) %}
+        {% set l = v_lookahead | int(10) %}
+        {% set now_hour = now().replace(minute=0, second=0, microsecond=0) %}
+        {% set max_dt = now_hour + timedelta(hours=l) %}
+        {% set forecast_list = state_attr(v_price, 'forecast') %}
+        {% if forecast_list is iterable and forecast_list is not string and forecast_list is not mapping %}
+          {% for item in forecast_list %}
+            {% if item is mapping %}
+              {% set raw_ts = item.get('datetime') or item.get('start') or item.get('timestamp') %}
+              {% set raw_val = item.get('price') if item.get('price') is not none else item.get('electricity_price') %}
+              {% set dt = raw_ts | as_datetime(none) %}
+              {% if dt is not none and raw_val is not none %}
+                {% set dt_local = dt | as_local %}
+                {% if dt_local >= now_hour and dt_local < max_dt %}
+                  {% set ns.p = ns.p + [raw_val | float(0.0)] %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.p | max if ns.p | length > 0 else 0.0 }}
+      is_most_expensive_hour: "{{ price < 90.0 and price >= ((max_sell_price | float(0.0)) - 0.0001) }}"
       should_buy_grid: >-
-        {{ needs_charge | bool(false) 
-           and is_cheapest_buy_hour | bool(false) 
+        {{ needs_charge | bool(false)
+           and is_cheapest_buy_hour | bool(false)
            and price <= (v_max_buy | float(0.25)) }}
       dynamic_trade_bottom: "{{ [v_trade_bottom | float(50.0), active_target_soc | float(50.0)] | max }}"
       should_sell_grid: >-
         {{ not (v_block_sell | bool(true) and is_bad_tomorrow | bool(false))
-           and soc >= (v_trade_trigger | float(90.0)) 
-           and is_most_expensive_hour | bool(false) 
-           and price >= (v_min_sell | float(0.35)) 
+           and soc >= (v_trade_trigger | float(90.0))
+           and is_most_expensive_hour | bool(false)
+           and price >= (v_min_sell | float(0.35))
            and soc > (dynamic_trade_bottom | float(50.0)) }}
 
   - variables:
@@ -432,7 +423,7 @@ action:
     data:
       level: info
       message: >
-        [Nul-op-de-meter V2] Uur={{ hour }}. Mode={{ target_mode }}, Power={{ target_power }}W (HW Limiet={{ hw_max_d if 'Discharge' in target_mode else hw_max_c }}W).
+        [Nul-op-de-meter V2] Uur={{ hour }}. Mode={{ target_mode }}, Power={{ target_power }}W (MinBuy={{ min_buy_price }}, Huidig={{ price }}).
         Lock Active: {{ 'YES' if transition_lock == 'true' else 'NO' }}.
 
   - choose:
